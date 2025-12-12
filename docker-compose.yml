@@ -38,17 +38,17 @@ services:
   #   depends_on:
   #     - mosquitto
 
-  # sensor_rr:
-  #   build: ./sensors/rr
-  #   container_name: sensor_rr
-  #   depends_on:
-  #     - mosquitto
+  sensor_rr:
+    build: ./sensors/rr
+    container_name: sensor_rr
+    depends_on:
+       - mosquitto
 
-  # sensor_bp:
-  #   build: ./sensors/bp
-  #   container_name: sensor_bp
-  #   depends_on:
-  #     - mosquitto
+  sensor_bp:
+    build: ./sensors/bp
+    container_name: sensor_bp
+    depends_on:
+      - mosquitto
 
 volumes:
   influx-data:
