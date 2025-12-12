@@ -32,11 +32,11 @@ services:
     depends_on:
       - mosquitto
 
-  # sensor_hr:
-  #   build: ./sensors/hr
-  #   container_name: sensor_hr
-  #   depends_on:
-  #     - mosquitto
+  sensor_hr:
+    build: ./sensors/hr
+    container_name: sensor_hr
+    depends_on:
+      - mosquitto
 
   sensor_rr:
     build: ./sensors/rr
