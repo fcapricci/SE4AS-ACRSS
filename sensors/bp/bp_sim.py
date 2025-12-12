@@ -17,6 +17,6 @@ def generate_bp():
 
 while True:
     systolic, astolic = generate_bp()
-    client.publish(TOPIC, astolic)
+    client.publish(TOPIC, f'{systolic}/{astolic}')
     print(f"[bp] → {systolic}/{astolic}")
     time.sleep(1)
