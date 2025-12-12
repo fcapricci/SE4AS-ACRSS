@@ -1,0 +1,54 @@
+version: '3.9'
+
+services:
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: mosquitto
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./docker/mosquitto.conf:/mosquitto/config/mosquitto.conf
+
+  influxdb:
+    image: influxdb:2.7
+    container_name: influxdb
+    ports:
+      - "8086:8086"
+    volumes:
+      - influx-data:/var/lib/influxdb2
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - influxdb
+
+  sensor_spo2:
+    build: ./sensors/spo2
+    container_name: sensor_spo2
+    depends_on:
+      - mosquitto
+
+  # sensor_hr:
+  #   build: ./sensors/hr
+  #   container_name: sensor_hr
+  #   depends_on:
+  #     - mosquitto
+
+  # sensor_rr:
+  #   build: ./sensors/rr
+  #   container_name: sensor_rr
+  #   depends_on:
+  #     - mosquitto
+
+  # sensor_bp:
+  #   build: ./sensors/bp
+  #   container_name: sensor_bp
+  #   depends_on:
+  #     - mosquitto
+
+volumes:
+  influx-data:
