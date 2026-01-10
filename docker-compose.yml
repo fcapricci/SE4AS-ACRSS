@@ -16,7 +16,17 @@ services:
     ports:
       - "8086:8086"
     volumes:
-      - influx-data:/var/lib/influxdb2
+      - influxdb_data:/var/lib/influxdb2
+      - influxdb_config:/etc/influxdb2
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: admin
+      DOCKER_INFLUXDB_INIT_PASSWORD: adminadmin
+      DOCKER_INFLUXDB_INIT_ORG: acrss
+      DOCKER_INFLUXDB_INIT_BUCKET: acrss
+      DOCKER_INFLUXDB_INIT_RETENTION: 30d
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: acrss-super-token
+    restart: unless-stopped
 
   grafana:
     image: grafana/grafana:latest
@@ -49,6 +59,26 @@ services:
     container_name: sensor_bp
     depends_on:
       - mosquitto
+  
+  monitor:
+    build: ./monitor
+    container_name: monitor
+    depends_on:
+      - mosquitto
+      - influxdb
+    environment:
+      MQTT_BROKER: mosquitto
+      MQTT_PORT: 1883
+      INFLUX_URL: http://influxdb:8086
+      INFLUX_TOKEN: acrss-super-token
+      INFLUX_ORG: acrss
+      INFLUX_BUCKET: acrss
+      PATIENT_ID: p1
+      SOURCE: sim
+    restart: unless-stopped
+
 
 volumes:
-  influx-data:
+  influxdb_data:
+  influxdb_config:
+
