@@ -78,6 +78,24 @@ services:
     restart: unless-stopped
 
 
+  analyzer:
+    build: ./analyzer
+    container_name: analyzer
+    depends_on:
+      - mosquitto
+      - influxdb
+    environment:
+      MQTT_BROKER: mosquitto
+      MQTT_PORT: 1883
+      MQTT_CLIENT_ID: analyzer-01
+      INFLUX_URL: http://influxdb:8086
+      INFLUX_TOKEN: acrss-super-token
+      INFLUX_ORG: acrss
+      INFLUX_BUCKET: acrss
+      PATIENT_ID: p1
+      SOURCE: sim
+    restart: unless-stopped
+
 volumes:
   influxdb_data:
   influxdb_config:
