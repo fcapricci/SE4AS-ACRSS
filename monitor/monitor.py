@@ -60,7 +60,6 @@ def main():
              .field("value", float(v))
              .time(ts_ms, WritePrecision.MS))
         write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=p)
-
     def write_agg(k, ts_ms, m):
         p = (Point("vitals_agg")
              .tag("patient_id", PATIENT_ID)
