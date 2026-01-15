@@ -20,12 +20,12 @@ INFLUX_BUCKET = os.getenv("INFLUX_BUCKET", "acrss")
 
 PATIENT_ID = os.getenv("PATIENT_ID", "p1")
 SLOPE_THRESHOLDS_5MIN = {
-    "HR":   [-75, -25,  25,  75],   # bpm / 5 min
-    "SBP":  [-50, -15,  15,  50],   # mmHg / 5 min
-    "DBP":  [-30, -10,  10,  30],
-    "MAP":  [-25,  -5,   5,  25],
-    "RR":   [-30, -10,  10,  30],
-    "SpO2": [-15,  -5,   5,  15],
+    "hr":   [-75, -25,  25,  75],   # bpm / 5 min
+    "sbp":  [-50, -15,  15,  50],   # mmHg / 5 min
+    "dbp":  [-30, -10,  10,  30],
+    "map":  [-25,  -5,   5,  25],
+    "rr":   [-30, -10,  10,  30],
+    "spo2": [-15,  -5,   5,  15],
 }
 
 
@@ -68,7 +68,7 @@ class Analyzer:
         self.outlier_threshold = 3.0  # Soglia per identificare outlier (in deviazioni standard)
         
     def send_status(self, client, status):
-       client.publish('acrss/analyzer/status', payload=status)
+       client.publish(f'acrss/analyzer/{PATIENT_ID}/status', payload=status)
        
     def _on_mqtt_disconnect(self, client, userdata, rc, properties=None):
         """Callback per disconnessione MQTT"""
@@ -178,12 +178,6 @@ class Analyzer:
                 min_variance = np.percentile(self.baseline_history[metric]['sigma'], 10) if len(self.baseline_history[metric]['sigma']) > 10 else 0.1
                 self.sigma_baseline[metric] = max(self.sigma_baseline[metric], min_variance)
         
-        # Log per debug
-        #print(f"Adaptive baseline update for {metric}:")
-        #print(f"  New value: {new_value}")
-        #print(f"  Old mu: {old_mu:.2f}, New mu: {self.mu_baseline[metric]:.2f}")
-        #print(f"  Old sigma: {np.sqrt(old_sigma):.2f}, New sigma: {np.sqrt(self.sigma_baseline[metric]):.2f}")
-        #print(f"  Is outlier: {is_outlier}")
     
     def detect_outlier(self, metric, value):
         """
@@ -226,56 +220,62 @@ class Analyzer:
         g_norm = abs(g) / g_max if g_max > 0 else 0
         g_norm = min(g_norm, 1)
         
-        # Combina con pesi
         s_t = (w1 * sigma_norm + w2 * g_norm + w3 * c_t) / (w1 + w2 + w3)
         
         # Se è un outlier, aumenta alpha per rispondere più rapidamente
         if is_outlier:
-            s_t = min(s_t * 1.5, 1.0)  # Aumenta ma non oltre 1
+            s_t = min(s_t * 1.5, 1.0)  
         
-        # Mappa tra alpha_min e alpha_max
         alpha_t = alpha_min + (alpha_max - alpha_min) * s_t
-        
-        # Log
-        #print(f"x_t {x_t}, mu_baseline[{metric}] {self.mu_baseline[metric]:.2f}, "
-        #      f"sigma_baseline[{metric}] {np.sqrt(self.sigma_baseline[metric]):.2f}")
-        #print(f"c_t {c_t}, is_outlier {is_outlier}")
-        
-        # Aggiorna baseline adattativa
         self.update_adaptive_baseline(metric, x_t, is_outlier)
         
         return alpha_t
-    """
-        SpO₂ ≥ 92% AND RR 12–24	Stato respiratorio stabile	Nessuna azione
-        SpO₂ < 92% AND ≥ 88%	Ipossia lieve	+1–2 L/min O₂
-        SpO₂ < 88% per ≥ 10 sec	Ipossia severa	O₂ Boost (≥ 6 L/min) + No beta-bloccanti
-        SpO₂ < 88% AND O₂ > 4 L/min	Fallimento ossigenoterapia	Alert + sospendere fluidi
-        RR 24–30 AND SpO₂ ≥ 92%	Tachipnea moderata	+1 L/min O₂
-        RR > 30	Distress respiratorio	Alert + sospendere fluidi
-        RR < 12	Bradipnea	Alert 
-        HR 60–120	Stato cardiaco stabile	Nessuna azione
-        HR 120–140 AND SpO₂ ≥ 92%	Tachicardia compensata	+1 L/min di O₂
-        HR > 125 AND SpO₂ ≥ 92% AND BP ≥ 90	Tachicardia primaria	Dose di Beta-bloccante
-        BP ≥ 90	Perfusione adeguata	Nessuna azione
-        BP 80–90	Ipotensione moderata	Aprire valvola fluidi bolus
-        BP < 80	Shock	Alert
-        BP < 90 AND RR > 30	Sovraccarico + distress	Chiudere valvola fluidi + Alert
-        BP < 90 AND HR > 120 AND RR < 30	Instabilità circolatoria senza distress	Aprire valvola fluidi + Dose di beta bloccante
-
-    """
-    def generate_status(self,average_data):
+    def generate_status(self,average_data,therapy:dict):
         status = []
-        if average_data["spo2"] >= 92 and (average_data["rr"] >=12 and average_data["rr"] <= 24):
+        # oxygen check
+        if (average_data["spo2"] >= 92).all() and ((average_data["rr"] >=12).all() and (average_data["rr"] <= 24).all()):
             status.append("STABLE")
-        elif average_data["spo2"] < 92 and average_data["spo2"] >= 88:
+        elif (average_data["spo2"] < 92).all() and (average_data["spo2"] >= 88).all():
             status.append("LIGHT_HYPOXIA")
-
+        elif (average_data["spo2"] < 88).all(): 
+            if therapy["ox_l_m"] >= 4:
+                status.append("FAILURE_OXYGEN_THERAPY")
+            else: 
+                status.append("GRAVE_HYPOXIA")
         
+        # respiration check
+        if  (average_data["rr"] >= 24).all() and (average_data["rr"] <= 30).all():
+            status.append("MODERATE_TACHYPNEA")
+        elif (average_data["rr"] > 30).all():
+            status.append("RESPIRATORY_DISTRESS")
+        elif (average_data["rr"] < 12).all():
+            status.append("BRADYPNEA")
+        
+
+        # tachycardia check
+        if (average_data["hr"] >= 60).all() and (average_data["hr"] <= 120).all():
+            status.append("STABLE_HR")
+        elif ((average_data["hr"] > 120).all() and (average_data["hr"] <= 140).all()) and (average_data["spo2"] >= 92).all():
+            status.append("TACHYCARDIA_COMPENSATED")
+        elif (average_data["hr"] > 125).all() and (average_data["spo2"] >= 92).all():
+            status.append("PRIMARY_TACHYCARDIA")
+
+        # blood pressure check
+        if (average_data["map"] < 65).all():
+            if (average_data["map"] < 55).all() or (average_data["sbp"] < 80).all():
+                status.append("SHOCK")
+            if  (average_data["rr"] > 30).all():
+                status.append("OVERLOAD_DISTRESS")
+            if  (average_data["hr"]).all()  > 120 and (average_data["RR"] < 30).all():
+                status.append("CIRCULARITY_UNSTABILITY")
+            if (55 <= average_data["map"]).all():
+                status.append("MODERATE_HYPOTENSION")
+        else:
+            status.append("NORMAL_PERFUSION")
         
         return status
     def apply_EWMA(self, alpha_t, x_t, metric):
         """Applica EWMA con alpha_t calcolato"""
-        #print(f"alpha_t {alpha_t:.4f}, x_t {x_t}, EWMA_prev {self.EWMA[metric]:.2f}")
         new_EWMA = alpha_t * x_t + ((1 - alpha_t) * self.EWMA[metric])
         self.EWMA[metric] = new_EWMA
         return new_EWMA
@@ -304,7 +304,7 @@ class Analyzer:
             for (time_k, val_k) in zip(timestamps_cols.keys(), diff.keys())
         }
         
-        # Gradiente massimo (95° percentile)
+        # Gradiente massimo (95° percentile) per evitare spike
         g_max = {i: np.percentile(np.abs(diff[i].values), 95) for i in diff.keys()}
         
         # Varianza mobile
@@ -316,7 +316,6 @@ class Analyzer:
             window += 1
         
         # Sigma massimo per normalizzazione
-        # Usa tutti i valori sigma per calcolare un percentile globale
         all_sigma_values = []
         for col in sigma.keys():
             all_sigma_values.extend(sigma[col].values)
@@ -325,13 +324,8 @@ class Analyzer:
         
         # Applica EWMA per ogni colonna
         for c in float_cols.columns:
-            #print(f"\n--- Processing column: {c} ---")
-            
             # Inizializza EWMA con il primo valore
             self.EWMA[c] = data.iloc[0][c]
-            #print(f"Initial EWMA[{c}] = {self.EWMA[c]}")
-            
-            # Calcola alpha_t per ogni punto
             alpha_t = [
                 self.calculate_alpha(
                     c, 
@@ -345,8 +339,6 @@ class Analyzer:
                 for i in data[c].index
             ]
             
-            #print(f"Alpha values for {c}: {[f'{a:.4f}' for a in alpha_t[:5]]}...")
-            
             # Applica EWMA
             ewma_values = []
             for i in range(len(alpha_t)):
@@ -354,10 +346,7 @@ class Analyzer:
                 ewma_values.append(ewma_val)
             
             data[c] = ewma_values
-            #print(f"Final EWMA values for {c}: {data[c].tolist()[:5]}...")
-            
-            time.sleep(1)  # Pausa per leggibilità
-        
+            time.sleep(1)
         return data
     
     def initialize_baseline(self, data):
@@ -414,12 +403,10 @@ class Analyzer:
             s = []
 
             while t < max(slow_EWMA_data.shape[0],fast_EWMA_data.shape[0]):
-                #print("t" ,t, "indexes ", [fast_EWMA_data.index.tolist()])
                 s.append((fast_EWMA_data.iloc[t][c] - slow_EWMA_data.iloc[i][c])/k[f"time_{c}"])
                 i+=1
                 t+=1
             slope[c] = np.sum(s)
-        print(slope)  
         return slope
         
     def classify_slope(self,value, thresholds):
@@ -439,8 +426,6 @@ class Analyzer:
     def classify_all_slopes(self,slopes_dict):
         """
         slopes_dict: dict {metric_name: slope_value}
-                    slope_value in unità / minuto
-
         returns: dict {metric_name: classification}
         """
 
@@ -458,14 +443,15 @@ class Analyzer:
    
     def classify_trend(self,trend):
         metric_trends = {}
-        for k,v in enumerate(trend):
-            if v < -1:
-                metric_trends[k] = "DETERIORING"
-            elif v > 1:
-                metric_trends[k] = "IMPROVING"
+        for c in trend.columns:
+            if (trend[c] < -1).all():
+                metric_trends[c] = "DETERIORING"
+            elif (trend[c]).all() > 1:
+                metric_trends[c] = "IMPROVING"
             else:
-                metric_trends[k] = "STABLE"
-def print_res_agg():
+                metric_trends[c] = "STABLE"
+        return metric_trends
+def analisis_loop():
     analyzer = None
     try:
         analyzer = Analyzer()    
@@ -474,43 +460,45 @@ def print_res_agg():
             return
             
         while True:
+            if not analyzer.par_initialized:
+                print("Initialization mu and signma")
+                time.sleep(60)
+                raw_data = analyzer.read_data()
+                analyzer.initialize_baseline(raw_data)
+                analyzer.par_initialized = True            
+            raw_data = analyzer.read_data()  
             print("\n" + "="*50)
             print("=== Reading data ===")
-            df = analyzer.read_data()
             
-            if df.empty:
-                print("No data available, waiting...")
-                time.sleep(5)
-                continue
-            if not analyzer.par_initialized:
-                print("Initialization")
-                analyzer.initialize_baseline(df)
-                analyzer.par_initialized = True            
-
-            print("start_time ", df.iloc[0]["time_hr"], " end time ", df.iloc[-1]["time_hr"])
-            
-            """
-            print("Applying adaptive EWMA slow filter...")
-            data_slow_filtered = analyzer.filter_EWMA(df).copy()
-            print("Applying adaptive EWMA fast filter...")
-            data_fast_filtered = analyzer.filter_EWMA(df,alpha_min = 0.2,alpha_max=0.3).copy()
-            trend = analyzer.calculate_trend(data_fast_filtered,data_slow_filtered)
-            metric_trend = analyzer(trend)
-            slope = analyzer.calculate_slope(df,data_slow_filtered, data_fast_filtered)
-            slope_trend = analyzer.classify_all_slopes(slope)
-            #print(trend)
-            """
             agg_data = analyzer.read_data(measurement='vitals_agg', limit=1)
-            print(agg_data)
-            if analyzer.mqtt_client:
-                status = {
-                    'timestamp': datetime.now().isoformat(),
-                    'status': 'running',
-                    'baselines': analyzer.mu_baseline
-                }
-            analyzer.send_status(analyzer.mqtt_client, json.dumps(status))
+            if raw_data.empty or agg_data.empty:
+                print("No data available, waiting...")
+                continue
             
-            time.sleep(5)
+
+            print("Applying adaptive EWMA slow filter...")
+            data_slow_filtered = analyzer.filter_EWMA(raw_data).copy()
+            print("Applying adaptive EWMA fast filter...")
+            data_fast_filtered = analyzer.filter_EWMA(raw_data,alpha_min = 0.2,alpha_max=0.3).copy()
+            
+            trend = analyzer.calculate_trend(data_fast_filtered,data_slow_filtered)
+            metric_trend = analyzer.classify_trend(trend)
+            slope = analyzer.calculate_slope(raw_data,data_slow_filtered, data_fast_filtered)
+            slope_trend = analyzer.classify_all_slopes(slope)
+            
+            therapy = {"ox_l_m":2,"beta_blocking":False,"fluid":False}
+            
+            status = analyzer.generate_status(agg_data,therapy)
+            
+            if analyzer.mqtt_client:
+                status_patient = {
+                    'timestamp': datetime.now().isoformat(),
+                    'status': status,
+                    'trend': metric_trend,
+                    'intensity':slope_trend
+                }
+            print(status_patient)
+            analyzer.send_status(analyzer.mqtt_client, json.dumps(status_patient))
             
     except KeyboardInterrupt:
         print("\nInterrupted by user")
@@ -525,7 +513,7 @@ def print_res_agg():
 def main():
     """Funzione principale"""
     import threading
-    thread = threading.Thread(target=print_res_agg, daemon=False)
+    thread = threading.Thread(target=analisis_loop, daemon=False)
     thread.start()
     try:
         while thread.is_alive():
