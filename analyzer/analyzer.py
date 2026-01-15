@@ -266,7 +266,7 @@ class Analyzer:
                 status.append("SHOCK")
             if  (average_data["rr"] > 30).all():
                 status.append("OVERLOAD_DISTRESS")
-            if  (average_data["hr"]).all()  > 120 and (average_data["RR"] < 30).all():
+            if  (average_data["hr"] > 120).all()   and (average_data["rr"] < 30).all():
                 status.append("CIRCULARITY_UNSTABILITY")
             if (55 <= average_data["map"]).all():
                 status.append("MODERATE_HYPOTENSION")
@@ -363,18 +363,50 @@ class Analyzer:
         for metric in float_cols.columns:
             self.baseline_history[metric]['mu'] = [self.mu_baseline[metric]]
             self.baseline_history[metric]['sigma'] = [self.sigma_baseline[metric]]
+   
     def calculate_trend(self,slow_EWMA_data, fast_EWMA_data):
-            """
-            returns the normalized trend for each vital parameter
-            :param slow_EWMA_data
-            :param fast_EWMA_data
-            """
             trend = fast_EWMA_data - slow_EWMA_data
             trend_mean = pd.DataFrame()
 
             for c in trend.select_dtypes(include=['float']).columns:
                 trend_mean[c] = [trend[c].mean()/self.sigma_baseline[c]]
             return trend_mean
+    """
+    def calculate_trend(self, slow_EWMA_data, fast_EWMA_data):
+      
+        trend_mean = pd.DataFrame()
+        phase = fast_EWMA_data - slow_EWMA_data
+        for c in phase.select_dtypes(include=['float']).columns:
+            d_phase = phase[c].diff()
+            d_phase = d_phase.dropna()
+            if len(d_phase) == 0 or self.sigma_baseline[c] == 0:
+                trend_mean[c] = [0.0]
+                continue
+            trend_mean[c] = [
+                d_phase.mean() / np.sqrt(self.sigma_baseline[c])
+            ]
+
+        return trend_mean
+    
+    def calculate_trend(self, slow_EWMA_data, fast_EWMA_data):
+
+        trend_mean = pd.DataFrame()
+
+        for c in slow_EWMA_data.select_dtypes(include=['float']).columns:
+            # derivata temporale del segnale (non della fase)
+            d_signal = slow_EWMA_data[c].diff().dropna()
+
+            if len(d_signal) == 0 or self.sigma_baseline[c] == 0:
+                trend_mean[c] = [0.0]
+                continue
+
+            # normalizzazione clinica
+            trend_mean[c] = [
+                d_signal.mean() / np.sqrt(self.sigma_baseline[c])
+            ]
+
+        return trend_mean
+    """
     def calculate_delta_time(self, time_col):
         """Compute medio Δt  in seconds"""
         if len(time_col) < 2:
@@ -409,12 +441,13 @@ class Analyzer:
             slope[c] = np.sum(s)
         return slope
         
+    
     def classify_slope(self,value, thresholds):
         sd, md, mi, si = thresholds
 
-        if value < sd:
+        if value <= sd:
             return "STRONG_DECREASE"
-        elif value < md:
+        elif value <= md:
             return "MODERATE_DECREASE"
         elif value <= mi:
             return "STABLE"
@@ -444,14 +477,14 @@ class Analyzer:
     def classify_trend(self,trend):
         metric_trends = {}
         for c in trend.columns:
-            if (trend[c] < -1).all():
+            if (trend[c] <= -0.5).all():
                 metric_trends[c] = "DETERIORING"
-            elif (trend[c]).all() > 1:
+            elif (trend[c ]>= 0.5).all() :
                 metric_trends[c] = "IMPROVING"
             else:
                 metric_trends[c] = "STABLE"
         return metric_trends
-def analisis_loop():
+def analysis_loop():
     analyzer = None
     try:
         analyzer = Analyzer()    
@@ -466,7 +499,8 @@ def analisis_loop():
                 raw_data = analyzer.read_data()
                 analyzer.initialize_baseline(raw_data)
                 analyzer.par_initialized = True            
-            raw_data = analyzer.read_data()  
+            raw_data = analyzer.read_data()
+
             print("\n" + "="*50)
             print("=== Reading data ===")
             
@@ -482,6 +516,7 @@ def analisis_loop():
             data_fast_filtered = analyzer.filter_EWMA(raw_data,alpha_min = 0.2,alpha_max=0.3).copy()
             
             trend = analyzer.calculate_trend(data_fast_filtered,data_slow_filtered)
+
             metric_trend = analyzer.classify_trend(trend)
             slope = analyzer.calculate_slope(raw_data,data_slow_filtered, data_fast_filtered)
             slope_trend = analyzer.classify_all_slopes(slope)
@@ -513,7 +548,7 @@ def analisis_loop():
 def main():
     """Funzione principale"""
     import threading
-    thread = threading.Thread(target=analisis_loop, daemon=False)
+    thread = threading.Thread(target=analysis_loop, daemon=False)
     thread.start()
     try:
         while thread.is_alive():
