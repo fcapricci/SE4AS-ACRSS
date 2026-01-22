@@ -5,14 +5,16 @@ from datetime import datetime
 from collections import deque
 
 import paho.mqtt.client as mqtt
-from influxdb_client import InfluxDBClient
+from influxdb_client import InfluxDBClient, Point, WritePrecision
 from influxdb_client.client.query_api import QueryApi
+
+from influxdb_client.client.write_api import SYNCHRONOUS
 import pandas as pd
 import numpy as np
 
 MQTT_BROKER = os.getenv("MQTT_BROKER", "mosquitto")
 MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
-
+SOURCE = "sim"
 INFLUX_URL = os.getenv("INFLUX_URL", "http://influxdb:8086")
 INFLUX_TOKEN = os.getenv("INFLUX_TOKEN", "acrss-super-token")
 INFLUX_ORG = os.getenv("INFLUX_ORG", "acrss")
@@ -41,6 +43,7 @@ class Analyzer:
                 org=INFLUX_ORG
             )
             self.query_api = self.influx_client.query_api()
+            self.write_api = self.influx_client.write_api(write_options=SYNCHRONOUS)
         except Exception as e:
             print(f"Connection error {e}")
             self.influx_client = None
@@ -66,10 +69,11 @@ class Analyzer:
         self.adaptive_window = 100  # Numero di campioni per adattamento baseline
         self.alpha_baseline = 0.05  # Fattore di smoothing per baseline adattativa
         self.outlier_threshold = 3.0  # Soglia per identificare outlier (in deviazioni standard)
-        
+
+
+    
     def send_status(self, client, status):
        client.publish(f'acrss/analyzer/{PATIENT_ID}/status', payload=status)
-       
     def _on_mqtt_disconnect(self, client, userdata, rc, properties=None):
         """Callback per disconnessione MQTT"""
         print(f"  MQTT disconnesso (code: {rc})")
@@ -231,47 +235,47 @@ class Analyzer:
         
         return alpha_t
     def generate_status(self,average_data,therapy:dict):
-        status = []
+        status = {}
         # oxygen check
         if (average_data["spo2"] >= 92).all() and ((average_data["rr"] >=12).all() and (average_data["rr"] <= 24).all()):
-            status.append("STABLE")
+            status["oxigenation"]="STABLE"
         elif (average_data["spo2"] < 92).all() and (average_data["spo2"] >= 88).all():
-            status.append("LIGHT_HYPOXIA")
+            status["oxigenation"]="LIGHT_HYPOXIA"
         elif (average_data["spo2"] < 88).all(): 
             if therapy["ox_l_m"] >= 4:
-                status.append("FAILURE_OXYGEN_THERAPY")
+                status["oxigenation"] = "FAILURE_OXYGEN_THERAPY"
             else: 
-                status.append("GRAVE_HYPOXIA")
+                status["oxigenation"] = "GRAVE_HYPOXIA"
         
         # respiration check
         if  (average_data["rr"] >= 24).all() and (average_data["rr"] <= 30).all():
-            status.append("MODERATE_TACHYPNEA")
+            status["respiration"]="MODERATE_TACHYPNEA"
         elif (average_data["rr"] > 30).all():
-            status.append("RESPIRATORY_DISTRESS")
+            status["respiration"]="RESPIRATORY_DISTRESS"
         elif (average_data["rr"] < 12).all():
-            status.append("BRADYPNEA")
+            status["respiration"]="BRADYPNEA"
         
 
         # tachycardia check
         if (average_data["hr"] >= 60).all() and (average_data["hr"] <= 120).all():
-            status.append("STABLE_HR")
+            status["heart_rate"]="STABLE_HR"
         elif ((average_data["hr"] > 120).all() and (average_data["hr"] <= 140).all()) and (average_data["spo2"] >= 92).all():
-            status.append("TACHYCARDIA_COMPENSATED")
+            status["heart_rate"]="TACHYCARDIA_COMPENSATED"
         elif (average_data["hr"] > 125).all() and (average_data["spo2"] >= 92).all():
-            status.append("PRIMARY_TACHYCARDIA")
+            status["heart_rate"]="PRIMARY_TACHYCARDIA"
 
         # blood pressure check
         if (average_data["map"] < 65).all():
             if (average_data["map"] < 55).all() or (average_data["sbp"] < 80).all():
-                status.append("SHOCK")
+                status["blood_pressure"]="SHOCK"
             if  (average_data["rr"] > 30).all():
-                status.append("OVERLOAD_DISTRESS")
+                status["blood_pressure"]="OVERLOAD_DISTRESS"
             if  (average_data["hr"] > 120).all()   and (average_data["rr"] < 30).all():
-                status.append("CIRCULARITY_UNSTABILITY")
+                status["blood_pressure"]="CIRCULARITY_UNSTABILITY"
             if (55 <= average_data["map"]).all():
-                status.append("MODERATE_HYPOTENSION")
+                status["blood_pressure"]="MODERATE_HYPOTENSION"
         else:
-            status.append("NORMAL_PERFUSION")
+            status["blood_pressure"]="NORMAL_PERFUSION"
         
         return status
     def apply_EWMA(self, alpha_t, x_t, metric):
@@ -363,7 +367,7 @@ class Analyzer:
         for metric in float_cols.columns:
             self.baseline_history[metric]['mu'] = [self.mu_baseline[metric]]
             self.baseline_history[metric]['sigma'] = [self.sigma_baseline[metric]]
-   
+    
     def calculate_trend(self,slow_EWMA_data, fast_EWMA_data):
             trend = fast_EWMA_data - slow_EWMA_data
             trend_mean = pd.DataFrame()
@@ -477,9 +481,10 @@ class Analyzer:
     def classify_trend(self,trend):
         metric_trends = {}
         for c in trend.columns:
-            if (trend[c] <= -0.5).all():
+            print(f"colonna {c} e trend {trend[c]}")
+            if (trend[c] <= -0.005).all():
                 metric_trends[c] = "DETERIORING"
-            elif (trend[c ]>= 0.5).all() :
+            elif (trend[c] > 0.005).all() :
                 metric_trends[c] = "IMPROVING"
             else:
                 metric_trends[c] = "STABLE"
@@ -516,7 +521,7 @@ def analysis_loop():
             data_fast_filtered = analyzer.filter_EWMA(raw_data,alpha_min = 0.2,alpha_max=0.3).copy()
             
             trend = analyzer.calculate_trend(data_fast_filtered,data_slow_filtered)
-
+            print("trend values ", trend)
             metric_trend = analyzer.classify_trend(trend)
             slope = analyzer.calculate_slope(raw_data,data_slow_filtered, data_fast_filtered)
             slope_trend = analyzer.classify_all_slopes(slope)
@@ -524,14 +529,15 @@ def analysis_loop():
             therapy = {"ox_l_m":2,"beta_blocking":False,"fluid":False}
             
             status = analyzer.generate_status(agg_data,therapy)
-            
+            ts_ms = int(datetime.now().timestamp() * 1000)
             if analyzer.mqtt_client:
                 status_patient = {
-                    'timestamp': datetime.now().isoformat(),
+                    'timestamp':ts_ms,
                     'status': status,
                     'trend': metric_trend,
                     'intensity':slope_trend
                 }
+
             print(status_patient)
             analyzer.send_status(analyzer.mqtt_client, json.dumps(status_patient))
             
