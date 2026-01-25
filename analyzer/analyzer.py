@@ -35,32 +35,8 @@ METRICS = ["hr", "rr", "spo2", "sbp", "dbp", "map"]
 
 class Analyzer:
     def __init__(self):
-        """Inizializza connessioni"""
-        try:
-            self.influx_client = InfluxDBClient(
-                url=INFLUX_URL,
-                token=INFLUX_TOKEN,
-                org=INFLUX_ORG
-            )
-            self.query_api = self.influx_client.query_api()
-            self.write_api = self.influx_client.write_api(write_options=SYNCHRONOUS)
-        except Exception as e:
-            print(f"Connection error {e}")
-            self.influx_client = None
-            return
-        try:
-            self.mqtt_client = mqtt.Client(
-                client_id="analyzer",
-                callback_api_version=mqtt.CallbackAPIVersion.VERSION2
-            )
-            self.mqtt_client.on_disconnect = self._on_mqtt_disconnect
-            self.mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
-            self.mqtt_client.loop_start()
-            print("Connected to MQTT!")
-        except Exception as e:
-            print(f"MQTT connection error: {e}")
-            self.mqtt_client = None
-        
+        """Initialize pipeline data"""
+
         self.par_initialized = False
         self.EWMA = {}
         self.mu_baseline = None
@@ -71,70 +47,9 @@ class Analyzer:
         self.outlier_threshold = 3.0  # Soglia per identificare outlier (in deviazioni standard)
 
 
-    
-    def send_status(self, client, status):
-       client.publish(f'acrss/analyzer/{PATIENT_ID}/status', payload=status)
-    def _on_mqtt_disconnect(self, client, userdata, rc, properties=None):
-        """Callback per disconnessione MQTT"""
-        print(f"  MQTT disconnesso (code: {rc})")
-
-    def read_data(self, measurement='vitals_raw', minutes=5, limit=1000):
-        """Legge gli ultimi dati da InfluxDB"""
-        if not self.influx_client:
-            print("InfluxDB not available")
-            return pd.DataFrame()
-        data_dict = {}
-        for m in METRICS:
-            try:
-                query = f'''
-                from(bucket: "{INFLUX_BUCKET}")
-                |> range(start: -{minutes}m)
-                |> filter(fn: (r) => r._measurement == "{measurement}")
-                |> filter(fn: (r) => r.patient_id == "{PATIENT_ID}")
-                |> filter(fn: (r) => r.metric == "{m}")
-                |> sort(columns: ["_time"], desc: true)
-                |> limit(n: {limit})
-                '''
-                results = self.query_api.query(query)
-                if not results:
-                    print("No data available")
-                    return pd.DataFrame()
-        
-                for table in results:
-                    timestamps = []
-                    values = []
-                    for record in table.records:
-                        timestamps.append(record.get_time())
-                        values.append(record.get_value())
-                    data_dict[f'time_{m}'] = timestamps
-                    data_dict[m] = values
-            except Exception as e:
-                print(f"Error in InfluxDB query: {e}")
-                import traceback
-                traceback.print_exc()
-                return pd.DataFrame()
-        col = [i for i in data_dict.keys()]
-        data = pd.DataFrame(columns=col)
-        min_len = min([len(data_dict[i]) for i in data_dict.keys()])
-        for k in col:
-            data[k] = data_dict[k][:min_len]
-        data = data.iloc[::-1].reset_index(drop=True)
-        return data
-
-    def cleanup(self):
-        """Pulizia risorse"""
-        if self.mqtt_client:
-            self.mqtt_client.loop_stop()
-            self.mqtt_client.disconnect()
-            print("MQTT disconnected")
-        
-        if self.influx_client:
-            self.influx_client.close()
-            print("InfluxDB closed")
-
     def update_adaptive_baseline(self, metric, new_value, is_outlier=False):
         """
-        Aggiorna dinamicamente la baseline con un approccio adattativo
+        Updates the baseline dynamically
         
         Args:
             metric: Nome della metrica (es. 'hr', 'spo2')
@@ -185,7 +100,7 @@ class Analyzer:
     
     def detect_outlier(self, metric, value):
         """
-        Rileva se un valore è un outlier rispetto alla baseline corrente
+        checks for outliers respect to the baseline
         
         Returns:
             bool: True se è outlier, False altrimenti
@@ -238,14 +153,17 @@ class Analyzer:
         status = {}
         # oxygen check
         if (average_data["spo2"] >= 92).all() and ((average_data["rr"] >=12).all() and (average_data["rr"] <= 24).all()):
-            status["oxigenation"]="STABLE"
+            status["oxigenation"]="STABLE_RESPIRATION"
         elif (average_data["spo2"] < 92).all() and (average_data["spo2"] >= 88).all():
             status["oxigenation"]="LIGHT_HYPOXIA"
         elif (average_data["spo2"] < 88).all(): 
-            if therapy["ox_l_m"] >= 4:
+            if therapy["ox_l_m"] > 6:
                 status["oxigenation"] = "FAILURE_OXYGEN_THERAPY"
             else: 
                 status["oxigenation"] = "GRAVE_HYPOXIA"
+        else:
+            status["oxigenation"]="STABLE_SATURATION"
+
         
         # respiration check
         if  (average_data["rr"] >= 24).all() and (average_data["rr"] <= 30).all():
@@ -254,23 +172,33 @@ class Analyzer:
             status["respiration"]="RESPIRATORY_DISTRESS"
         elif (average_data["rr"] < 12).all():
             status["respiration"]="BRADYPNEA"
+        else:
+            status['respiration'] = "STABLE_RESPIRATION_EFFORT"
         
 
         # tachycardia check
+        print(average_data["spo2"], average_data["hr"] )
         if (average_data["hr"] >= 60).all() and (average_data["hr"] <= 120).all():
             status["heart_rate"]="STABLE_HR"
-        elif ((average_data["hr"] > 120).all() and (average_data["hr"] <= 140).all()) and (average_data["spo2"] >= 92).all():
-            status["heart_rate"]="TACHYCARDIA_COMPENSATED"
-        elif (average_data["hr"] > 125).all() and (average_data["spo2"] >= 92).all():
-            status["heart_rate"]="PRIMARY_TACHYCARDIA"
+        if (average_data["spo2"] >= 92).all():
+            if (average_data["hr"] > 125).all() and (average_data['map'] >= 90).all():
+                status["heart_rate"]="PRIMARY_TACHYCARDIA"
+            elif ((average_data["hr"] > 120).all() and (average_data["hr"] <= 140).all()) :
+                status["heart_rate"]="COMPENSED_TACHYCARDIA"
+            else:
+                status['heart_rate'] = 'HIGH_HR'
+        else:
+            status['heart_rate'] = 'HIGH_HR'
+            
+        
 
         # blood pressure check
         if (average_data["map"] < 65).all():
             if (average_data["map"] < 55).all() or (average_data["sbp"] < 80).all():
                 status["blood_pressure"]="SHOCK"
             if  (average_data["rr"] > 30).all():
-                status["blood_pressure"]="OVERLOAD_DISTRESS"
-            if  (average_data["hr"] > 120).all()   and (average_data["rr"] < 30).all():
+                status["blood_pressure"]="DISTRESS_OVERLOAD"
+            if  (average_data["hr"] > 120).all()   and (average_data["rr"] < 30).all() and (average_data['map'] >= 90).all():
                 status["blood_pressure"]="CIRCULARITY_UNSTABILITY"
             if (55 <= average_data["map"]).all():
                 status["blood_pressure"]="MODERATE_HYPOTENSION"
@@ -359,15 +287,16 @@ class Analyzer:
         self.mu_baseline = {str(i): float_cols[i].mean() for i in float_cols.columns}
         self.sigma_baseline = {str(i): float_cols[i].var() for i in float_cols.columns}
         
-        print("Baseline initialized:")
+        """print("Baseline initialized:")
         for metric in float_cols.columns:
             print(f"  {metric}: μ = {self.mu_baseline[metric]:.2f}, σ = {np.sqrt(self.sigma_baseline[metric]):.2f}")
-        
+        """        
         # Inizializza buffer storico
         for metric in float_cols.columns:
             self.baseline_history[metric]['mu'] = [self.mu_baseline[metric]]
             self.baseline_history[metric]['sigma'] = [self.sigma_baseline[metric]]
     
+    """
     def calculate_trend(self,slow_EWMA_data, fast_EWMA_data):
             trend = fast_EWMA_data - slow_EWMA_data
             trend_mean = pd.DataFrame()
@@ -375,7 +304,7 @@ class Analyzer:
             for c in trend.select_dtypes(include=['float']).columns:
                 trend_mean[c] = [trend[c].mean()/self.sigma_baseline[c]]
             return trend_mean
-    """
+    
     def calculate_trend(self, slow_EWMA_data, fast_EWMA_data):
       
         trend_mean = pd.DataFrame()
@@ -391,8 +320,8 @@ class Analyzer:
             ]
 
         return trend_mean
-    
-    def calculate_trend(self, slow_EWMA_data, fast_EWMA_data):
+    """
+    def calculate_trend(self, slow_EWMA_data):
 
         trend_mean = pd.DataFrame()
 
@@ -410,7 +339,7 @@ class Analyzer:
             ]
 
         return trend_mean
-    """
+    
     def calculate_delta_time(self, time_col):
         """Compute medio Δt  in seconds"""
         if len(time_col) < 2:
@@ -445,7 +374,6 @@ class Analyzer:
             slope[c] = np.sum(s)
         return slope
         
-    
     def classify_slope(self,value, thresholds):
         sd, md, mi, si = thresholds
 
@@ -477,11 +405,10 @@ class Analyzer:
 
         return classifications
 
-   
     def classify_trend(self,trend):
         metric_trends = {}
         for c in trend.columns:
-            print(f"colonna {c} e trend {trend[c]}")
+            """print(f"colonna {c} e trend {trend[c]}")"""
             if (trend[c] <= -0.005).all():
                 metric_trends[c] = "DETERIORING"
             elif (trend[c] > 0.005).all() :
@@ -489,39 +416,101 @@ class Analyzer:
             else:
                 metric_trends[c] = "STABLE"
         return metric_trends
-def analysis_loop():
-    analyzer = None
+
+
+
+def send_status( client, status):
+    client.publish(f'acrss/analyzer/{PATIENT_ID}/status', payload=status)
+def _on_mqtt_disconnect( client, userdata, rc, properties=None):
+    """Callback per disconnessione MQTT"""
+    print(f"  MQTT disconnesso (code: {rc})")
+
+def read_data(query_api,measurement='vitals_raw', minutes=5, limit=1000):
+        """Reads data from InfluxDB"""
+        data_dict = {}
+        for m in METRICS:
+            try:
+                query = f'''
+                from(bucket: "{INFLUX_BUCKET}")
+                |> range(start: -{minutes}m)
+                |> filter(fn: (r) => r._measurement == "{measurement}")
+                |> filter(fn: (r) => r.patient_id == "{PATIENT_ID}")
+                |> filter(fn: (r) => r.metric == "{m}")
+                |> sort(columns: ["_time"], desc: true)
+                |> limit(n: {limit})
+                '''
+                results = query_api.query(query)
+                if not results:
+                    print("No data available")
+                    return pd.DataFrame()
+        
+                for table in results:
+                    timestamps = []
+                    values = []
+                    for record in table.records:
+                        timestamps.append(record.get_time())
+                        values.append(record.get_value())
+                    data_dict[f'time_{m}'] = timestamps
+                    data_dict[m] = values
+            except Exception as e:
+                print(f"Error in InfluxDB query: {e}")
+                import traceback
+                traceback.print_exc()
+                return pd.DataFrame()
+        col = [i for i in data_dict.keys()]
+        data = pd.DataFrame(columns=col)
+        min_len = min([len(data_dict[i]) for i in data_dict.keys()])
+        for k in col:
+            data[k] = data_dict[k][:min_len]
+        data = data.iloc[::-1].reset_index(drop=True)
+        return data
+
+def cleanup(mqtt_client, influx_client):
+    """Pulizia risorse"""
+    if mqtt_client:
+        mqtt_client.loop_stop()
+        mqtt_client.disconnect()
+        print("MQTT disconnected")
+    
+    if influx_client:
+        influx_client.close()
+        print("InfluxDB closed")
+
+def analysis_loop(influx_client,query_api,mqtt_client,analyzer):
+
     try:
-        analyzer = Analyzer()    
-        if not analyzer.influx_client:
+        if not influx_client:
             print("Cannot connect to InfluxDB")
             return
             
         while True:
+            time.sleep(1)
             if not analyzer.par_initialized:
                 print("Initialization mu and signma")
                 time.sleep(60)
-                raw_data = analyzer.read_data()
+                raw_data = read_data(query_api)
                 analyzer.initialize_baseline(raw_data)
-                analyzer.par_initialized = True            
-            raw_data = analyzer.read_data()
-
+                analyzer.par_initialized = True    
+            else:        
+                raw_data = read_data(query_api)
+            """
             print("\n" + "="*50)
-            print("=== Reading data ===")
+            print("=== Reading data ===")"""
             
-            agg_data = analyzer.read_data(measurement='vitals_agg', limit=1)
+            agg_data = read_data(query_api,measurement='vitals_agg', limit=1)
             if raw_data.empty or agg_data.empty:
                 print("No data available, waiting...")
                 continue
             
 
-            print("Applying adaptive EWMA slow filter...")
+            """print("Applying adaptive EWMA slow filter...")"""
             data_slow_filtered = analyzer.filter_EWMA(raw_data).copy()
-            print("Applying adaptive EWMA fast filter...")
+            """print("Applying adaptive EWMA fast filter...")"""
             data_fast_filtered = analyzer.filter_EWMA(raw_data,alpha_min = 0.2,alpha_max=0.3).copy()
             
-            trend = analyzer.calculate_trend(data_fast_filtered,data_slow_filtered)
-            print("trend values ", trend)
+            trend = analyzer.calculate_trend(data_slow_filtered)
+            #trend = analyzer.calculate_trend(data_fast_filtered,data_slow_filtered)
+            """print("trend values ", trend)"""
             metric_trend = analyzer.classify_trend(trend)
             slope = analyzer.calculate_slope(raw_data,data_slow_filtered, data_fast_filtered)
             slope_trend = analyzer.classify_all_slopes(slope)
@@ -530,7 +519,7 @@ def analysis_loop():
             
             status = analyzer.generate_status(agg_data,therapy)
             ts_ms = int(datetime.now().timestamp() * 1000)
-            if analyzer.mqtt_client:
+            if mqtt_client:
                 status_patient = {
                     'timestamp':ts_ms,
                     'status': status,
@@ -538,8 +527,8 @@ def analysis_loop():
                     'intensity':slope_trend
                 }
 
-            print(status_patient)
-            analyzer.send_status(analyzer.mqtt_client, json.dumps(status_patient))
+            """print(status_patient)"""
+            send_status(mqtt_client, json.dumps(status_patient))
             
     except KeyboardInterrupt:
         print("\nInterrupted by user")
@@ -548,13 +537,38 @@ def analysis_loop():
         import traceback
         traceback.print_exc()
     finally:
-        if analyzer:
-            analyzer.cleanup()
+            cleanup(mqtt_client,influx_client)
 
 def main():
     """Funzione principale"""
+    try:
+        influx_client = InfluxDBClient(
+            url=INFLUX_URL,
+            token=INFLUX_TOKEN,
+            org=INFLUX_ORG
+        )
+        query_api = influx_client.query_api()
+        write_api = influx_client.write_api(write_options=SYNCHRONOUS)
+    except Exception as e:
+        print(f"Connection error {e}")
+        influx_client = None
+        
+    try:
+        mqtt_client = mqtt.Client(
+            client_id="analyzer",
+            callback_api_version=mqtt.CallbackAPIVersion.VERSION2
+        )
+        mqtt_client.on_disconnect = _on_mqtt_disconnect
+        mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
+        mqtt_client.loop_start()
+        print("Connected to MQTT!")
+    except Exception as e:
+        print(f"MQTT connection error: {e}")
+        mqtt_client = None
+
+    analyzer = Analyzer()
     import threading
-    thread = threading.Thread(target=analysis_loop, daemon=False)
+    thread = threading.Thread(target=analysis_loop,args=(influx_client,query_api,mqtt_client,analyzer), daemon=False)
     thread.start()
     try:
         while thread.is_alive():
