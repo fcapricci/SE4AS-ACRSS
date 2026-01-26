@@ -10,6 +10,8 @@ from influxdb_client.client.write_api import SYNCHRONOUS
 import pandas as pd
 import numpy as np
 import signal
+import copy
+
 import sys
 
 
@@ -121,7 +123,7 @@ class Planner():
             'fluids': None, 
             'carvedilolo_beta_blocking': 0,
             'improve_beta_blocking': 0,
-            'alert': [],
+            'alert': set(),
             'timestamp': None
         } 
         self.dt_incr = 80640 # seconds per day
@@ -215,7 +217,7 @@ class Planner():
             self.therapy['ox_therapy'] = self.MAX_NON_INVASIVE_OX_THERAPY 
             print(f"OSSIGENO BOOST: {self.therapy['ox_therapy']} L/min (GRAVE_HYPOXIA)")
         elif status['oxigenation'] == "FAILURE_OXYGEN_THERAPY":
-            self.therapy['alert'].append('FAILURE_OXYGEN_THERAPY' )
+            self.therapy['alert'].add('FAILURE_OXYGEN_THERAPY' )
             print("ALERT: Fallimento ossigenoterapia")
         # Controllo se il paziente viene stabilizzato
         elif pattern_stable in status['oxigenation'] and trend['spo2'] != 'DETERIORING':
@@ -230,10 +232,10 @@ class Planner():
                  self.therapy['ox_therapy'] +=2
                  ox_increased = True
         elif status['respiration'] == 'RESPIRATORY_DISTRESS':
-            self.therapy['alert'].append('RESPIRATORY_DISTRESS')
+            self.therapy['alert'].add('RESPIRATORY_DISTRESS')
             print("ALERT: RESPIRATORY_DISTRESS - fluidi sospesi")
         elif status['respiration'] == 'BRADYPNEA':
-            self.therapy['alert'].append('BRADYPNEA')
+            self.therapy['alert'].add('BRADYPNEA')
             print("ALERT: BRADYPNEA - fluidi sospesi")
 
     def pharmacy_therapy(self, patient_state):
@@ -271,14 +273,14 @@ class Planner():
                 print("Fluidi: BOLUS attivato (MODERATE_HYPOTENSION - STABLE)")
             elif trend.get('map') == 'DETERIORING':
                 self.therapy['fluids'] = 'BOLUS'
-                self.therapy['alert'].append("MODERATE_HYPOTENSION")
+                self.therapy['alert'].add("MODERATE_HYPOTENSION")
                 print("ALERT: Ipotensione moderata in peggioramento - BOLUS attivato")
         
         if status.get('blood_pressure') == 'SHOCK' and trend.get('map') != 'IMPROVING' and intensity['map'] not in ['MODERATE_INCREASE', 'STRONG_INCREASE']:
-            self.therapy['alert'].append("SHOCK")
+            self.therapy['alert'].add("SHOCK")
             print("ALERT: Shock rilevato")
         if status.get('blood_pressure') == 'DISTRESS_OVERLOAD' and trend.get('spo2') == 'DETERIORING':
-            self.therapy['alert'].append("DISTRESS_OVERLOAD")
+            self.therapy['alert'].add("DISTRESS_OVERLOAD")
             print("ALERT: Sovraccarico + distress - fluidi STOP")
         
         if status.get('blood_pressure') == 'CIRCULARITY_UNSTABILITY':
@@ -398,6 +400,7 @@ def cleanup():
     print("[PLANNER] Pulizia completata")
 def planner_loop(influx_client,query_api,mqtt_client,planner):
     old_therapy = None
+
     try:
         print("\n[PLANNER] Planner in esecuzione...")
         print("[PLANNER] Premi Ctrl+C per fermare\n")
@@ -412,9 +415,8 @@ def planner_loop(influx_client,query_api,mqtt_client,planner):
                 planner.therapy['timestamp'] = datetime.now().isoformat()
                 send_status(mqtt_client, planner.therapy)
                 print(planner.therapy)
-                planner.therapy['alert'] = []
-                old_therapy = planner.therapy.copy()
-            old_therapy = planner.therapy.copy()
+                planner.therapy['alert'].clear()
+                old_therapy = copy.deepcopy(planner.therapy)
             
     except KeyboardInterrupt:
         print("\n[PLANNER] Interruzione da tastiera ricevuta")
