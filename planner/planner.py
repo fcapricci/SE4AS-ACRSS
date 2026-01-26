@@ -3,7 +3,6 @@ import json
 import time
 from datetime import datetime
 from collections import deque
-import re
 import paho.mqtt.client as mqtt
 from influxdb_client import InfluxDBClient, Point, WritePrecision
 from influxdb_client.client.query_api import QueryApi
@@ -95,10 +94,9 @@ ARBITRATION TABLE
 | ---------------------- | --------------------------------------- |
 | RESPIRATORY_DISTRESS   | Sospendere TUTTI i fluidi               |
 | FAILURE_OXYGEN_THERAPY | Sospendere fluidi                       |
-| SHOCK                  | blocca beta-bloccanti |
+| SHOCK                  | blocca beta-bloccanti                    |
 | DISTRESS_OVERLOAD      | Vietati fluidi                          |
 | BRADYPNEA              | Vietati beta-bloccanti                  |
-| map < 55               | Vietati beta-bloccanti                  |
 | SpO₂ < 88              | Vietati beta-bloccanti                  |
 
 """
@@ -112,7 +110,6 @@ INFLUX_TOKEN = os.getenv("INFLUX_TOKEN", "acrss-super-token")
 INFLUX_ORG = os.getenv("INFLUX_ORG", "acrss")
 INFLUX_BUCKET = os.getenv("INFLUX_BUCKET", "acrss")
 
-METRICS = ["hr", "rr", "spo2", "sbp", "dbp", "map"]
 
 class Planner():
     def __init__(self):
@@ -124,124 +121,173 @@ class Planner():
             'fluids': None, 
             'carvedilolo_beta_blocking': 0,
             'improve_beta_blocking': 0,
-            'alert': None,
+            'alert': [],
             'timestamp': None
         } 
+        self.dt_incr = 80640 # seconds per day
+        self.MAX_NON_INVASIVE_OX_THERAPY = 6
+        self.STARTING_BB_DOSE = 1.25
+        self.INCR_BB_DOSE = 0.25
+        self.ox_active_therapy = None
+        self.bb_active_therapy = {
+                                    'carvedilolo_beta_blocking': 0,
+                                    'improve_beta_blocking': 0
+                                }
+        self.last_bb_incr = None 
         self.beta_blocking_target_dose = 10
-    
-    def define_ox_therapy(self, patient_state):
-        pattern = "*_DECREASE"
+
+    def stop_beta_blocking(self, patient_state):
+        status = patient_state.get('status', {})
+
+        if status.get('blood_pressure') == 'SHOCK' and self.therapy['carvedilolo_beta_blocking'] != 0 :
+            self.bb_active_therapy['carvedilolo_beta_blocking'] = self.therapy['carvedilolo_beta_blocking']
+            self.bb_active_therapy['improve_beta_blocking'] = self.therapy['improve_beta_blocking']
+            self.therapy['carvedilolo_beta_blocking'] = 0
+            self.therapy['improve_beta_blocking'] = 0
+            self.therapy['carvedilolo_beta_blocking'] = 0
+            self.therapy['improve_beta_blocking'] = 0
+            print('ARBITRATION: BETA_BLOCKERS_BLOCKED_SHOCK')
+        else:
+            print("beta bloccante riattivato")
+            self.therapy['carvedilolo_beta_blocking'] = self.bb_active_therapy['carvedilolo_beta_blocking'] 
+            self.therapy['improve_beta_blocking'] = self.bb_active_therapy['improve_beta_blocking']
+            self.bb_active_therapy['carvedilolo_beta_blocking'] = 0
+            self.bb_active_therapy['improve_beta_blocking'] = 0
+        
+
+        if status.get('oxigenation') == 'GRAVE_HYPOXIA' and self.therapy['carvedilolo_beta_blocking'] !=0 :
+            self.bb_active_therapy['carvedilolo_beta_blocking'] = self.therapy['carvedilolo_beta_blocking']
+            self.bb_active_therapy['improve_beta_blocking'] = self.therapy['improve_beta_blocking']
+            self.therapy['carvedilolo_beta_blocking'] = 0
+            self.therapy['improve_beta_blocking'] = 0
+            print('ARBITRATION: BETA_BLOCKERS_BLOCKED_GRAVE_HYPOXIA')
+        else:
+            print("beta bloccante riattivato")
+            self.therapy['carvedilolo_beta_blocking'] = self.bb_active_therapy['carvedilolo_beta_blocking'] 
+            self.therapy['improve_beta_blocking'] = self.bb_active_therapy['improve_beta_blocking']
+            self.bb_active_therapy['carvedilolo_beta_blocking'] = 0
+            self.bb_active_therapy['improve_beta_blocking'] = 0
+
+        if status.get('respiration') == 'BRADYPNEA' and self.therapy['carvedilolo_beta_blocking'] != 0:
+            self.therapy['carvedilolo_beta_blocking'] = 0
+            self.therapy['improve_beta_blocking'] = 0
+            print('ARBITRATION: BETA_BLOCKERS_FORBIDDEN_BRADYPNEA')
+    def stop_fluids(self, patient_state):
+        status = patient_state.get('status', {})
+
+        if status.get('respiration') == 'RESPIRATORY_DISTRESS' and self.therapy['fluids'] is not None:
+            self.therapy['fluids'] = None
+            print('ARBITRATION: FLUIDS_STOP_RESPIRATORY_DISTRESS')
+
+        if status.get('oxigenation') == 'FAILURE_OXYGEN_THERAPY' and self.therapy['fluids'] is not None:
+            self.therapy['fluids'] = None
+            print('ARBITRATION: FLUIDS_STOP_OXYGEN_FAILURE')
+
+        if status.get('blood_pressure') == 'DISTRESS_OVERLOAD' and self.therapy['fluids'] is not None:
+            self.therapy['fluids'] = None
+            print('ARBITRATION: FLUIDS_FORBIDDEN_OVERLOAD')
+
+    def calculate_dt(self):
+        return int(datetime.now().timestamp()) - int(self.last_bb_incr) > self.dt_incr
+
+    def ox_therapy(self, patient_state):
+        pattern_decrease = "_DECREASE"
+        pattern_stable = "STABLE_"
         status = patient_state.get('status', {})
         trend = patient_state.get('trend', {})
         intensity = patient_state.get('intensity', {})
         ox_increased = False
-
-        # Controllo se il paziente viene stabilizzato
-        if (status.get('oxigenation') in ['STABLE_RESPIRATION', 'STABLE_SATURATION'] and 
-            trend.get('spo2') != 'DETERIORING' and 
-            status.get('respiration') != 'MODERATE_TACHYPNEA' and 
-            status.get('heart_rate') != 'COMPENSED_TACHYCARDIA'):
-            if self.therapy['ox_therapy'] > 0:
-                self.therapy['ox_therapy'] -= 1
-                """print(f"Ossigeno diminuito a {self.therapy['ox_therapy']} L/min")"""
-        else:
-            # Controllo se il paziente necessita di terapia dell'ossigeno
-            if status.get('oxigenation') == 'LIGHT_HYPOXIA':
-                ox_increased = True
-                if trend.get('spo2') == 'IMPROVING':
-                    self.therapy['ox_therapy'] += 1
-                    """print(f"Ossigeno aumentato a {self.therapy['ox_therapy']} L/min (LIGHT_HYPOXIA - IMPROVING)")"""
-                elif trend.get('spo2') == 'STABLE':
-                    if intensity.get('spo2') in ['STRONG_DECREASE', 'MODERATE_DECREASE']:
-                        self.therapy['ox_therapy'] += 2
-                        """print(f"Ossigeno aumentato a {self.therapy['ox_therapy']} L/min (LIGHT_HYPOXIA - STABLE - DECREASING)")"""
-                else:
-                    self.therapy['ox_therapy'] += 2
-                    """print(f"Ossigeno aumentato a {self.therapy['ox_therapy']} L/min (LIGHT_HYPOXIA - DETERIORATING)")"""
-            
-            elif status.get('oxigenation') == 'GRAVE_HYPOXIA':
-                ox_increased = True
-                if self.therapy['ox_therapy'] < 6:
-                    self.therapy['ox_therapy'] = 6
-                else:
-                    self.therapy['ox_therapy'] += 1
-                """print(f"OSSIGENO BOOST: {self.therapy['ox_therapy']} L/min (GRAVE_HYPOXIA)")"""
-            
-            elif status.get('oxigenation') == "FAILURE_OXYGEN_THERAPY":
-                self.therapy['alert'] = "FAILURE_OXYGEN_THERAPY"
-                ox_increased = True
-                """print("ALERT: Fallimento ossigenoterapia")"""
-
-            # Controlli per respirazione
-            if trend.get('rr') != 'IMPROVING':
-                if trend.get('rr') == 'DETERIORATING' and intensity.get('rr') in ['MODERATE_DECREASE', 'STRONG_DECREASE'] and not ox_increased:
-                    self.therapy['ox_therapy'] += 2
-                    """print(f"Ossigeno aumentato a {self.therapy['ox_therapy']} L/min (RR DETERIORATING)")"""
-                elif trend.get('rr') == 'STABLE' and not ox_increased:
-                    self.therapy['ox_therapy'] += 2
-                    """print(f"Ossigeno aumentato a {self.therapy['ox_therapy']} L/min (RR STABLE)")"""
-
-            # Controlli per frequenza cardiaca
-            if (trend.get('hr') == 'STABLE' or (trend.get('hr') == 'DETERIORING' and intensity.get('hr') == 'STRONG_INCREASE')) and not ox_increased:
+        # Controllo se il paziente necessita di terapia dell'ossigeno
+        if status['oxigenation']== "LIGHT_HYPOXIA" and self.therapy['ox_therapy'] < self.MAX_NON_INVASIVE_OX_THERAPY :
+            if trend['spo2'] == 'IMPROVING':
                 self.therapy['ox_therapy'] += 1
-                """print(f"Ossigeno aumentato a {self.therapy['ox_therapy']} L/min (HR condition)")"""
+                ox_increased = True
+                print(f"Ossigeno aumentato a {self.therapy['ox_therapy']} L/min (LIGHT_HYPOXIA - IMPROVING)")
+            elif trend['spo2'] == 'STABLE' and (pattern_decrease in intensity['spo2']) and self.therapy['ox_therapy'] < self.MAX_NON_INVASIVE_OX_THERAPY :
+                self.therapy['ox_therapy'] += 2
+                ox_increased = True
+                print(f"Ossigeno aumentato a {self.therapy['ox_therapy']} L/min (LIGHT_HYPOXIA - STABLE)")
+            elif trend['spo2'] == 'DETERIORING' and self.therapy['ox_therapy'] < self.MAX_NON_INVASIVE_OX_THERAPY :
+                self.therapy['ox_therapy'] += 2
+                ox_increased = True
+                print(f"Ossigeno aumentato a {self.therapy['ox_therapy']} L/min (LIGHT_HYPOXIA - DETERIORING)")
+        elif status['oxigenation'] == "GRAVE_HYPOXIA" and self.therapy['ox_therapy'] < self.MAX_NON_INVASIVE_OX_THERAPY :
+            self.therapy['ox_therapy'] = self.MAX_NON_INVASIVE_OX_THERAPY 
+            print(f"OSSIGENO BOOST: {self.therapy['ox_therapy']} L/min (GRAVE_HYPOXIA)")
+        elif status['oxigenation'] == "FAILURE_OXYGEN_THERAPY":
+            self.therapy['alert'].append('FAILURE_OXYGEN_THERAPY' )
+            print("ALERT: Fallimento ossigenoterapia")
+        # Controllo se il paziente viene stabilizzato
+        elif pattern_stable in status['oxigenation'] and trend['spo2'] != 'DETERIORING':
+            self.therapy['ox_therapy'] = self.therapy['ox_therapy']-1 if self.therapy['ox_therapy'] > 0 else self.therapy['ox_therapy']  
+            print(f"Ossigeno diminuito a {self.therapy['ox_therapy']} L/min" if self.therapy['ox_therapy'] > 0 else "")
 
-        # Alert per problemi respiratori
-        if status.get('respiration') == 'BRADYPNEA':
-            self.therapy['alert'] = "BRADYPNEA"
-            """print("ALERT: Bradipnea rilevata")"""
-        elif status.get('respiration') == 'RESPIRATORY_DISTRESS':
-            self.therapy['alert'] = "RESPIRATORY_DISTRESS"
-            self.therapy['fluids'] = 'STOP'
-            """print("ALERT: Distress respiratorio - fluidi sospesi")"""
+        if status['respiration'] == 'MODERATE_TACHYPNEA' and trend['rr'] in ['STABLE', 'DETERIORING'] and ox_increased == False and self.therapy['ox_therapy'] < self.MAX_NON_INVASIVE_OX_THERAPY :
+            if trend['rr'] == 'STABLE':
+                self.therapy['ox_therapy'] +=1
+                ox_increased = True
+            elif trend['rr'] == 'DETERIORING' and pattern_decrease in intensity['rr']:
+                 self.therapy['ox_therapy'] +=2
+                 ox_increased = True
+        elif status['respiration'] == 'RESPIRATORY_DISTRESS':
+            self.therapy['alert'].append('RESPIRATORY_DISTRESS')
+            print("ALERT: RESPIRATORY_DISTRESS - fluidi sospesi")
+        elif status['respiration'] == 'BRADYPNEA':
+            self.therapy['alert'].append('BRADYPNEA')
+            print("ALERT: BRADYPNEA - fluidi sospesi")
 
     def pharmacy_therapy(self, patient_state):
         status = patient_state.get('status', {})
         trend = patient_state.get('trend', {})
-        
+        intensity = patient_state.get('intensity', {})
+
         # Gestione beta-bloccanti
-        if status.get('heart_rate') == 'STABLE_HR' and trend.get('hr') != 'DETERIORING':
-            if self.therapy['improve_beta_blocking'] >= 0.25:
-                self.therapy['improve_beta_blocking'] -= 0.25
-                """print(f"Beta-bloccante miglioramento diminuito a {self.therapy['improve_beta_blocking']}")"""
-            if self.therapy['improve_beta_blocking'] == 0 and self.therapy['carvedilolo_beta_blocking'] >= 0.25:
-                self.therapy['carvedilolo_beta_blocking'] -= 0.25
-                """print(f"Beta-bloccante base diminuito a {self.therapy['carvedilolo_beta_blocking']}")"""
+        if status['heart_rate'] == 'STABLE_HR' and trend.get('hr') != 'DETERIORING':
+            if self.therapy['improve_beta_blocking'] > 0 and self.calculate_dt():
+                self.last_bb_incr = int(datetime.now().timestamp())
+                self.therapy['improve_beta_blocking'] -= self.INCR_BB_DOSE
+                print(f"Beta-bloccante diminuito a {self.therapy['improve_beta_blocking']}")
+            if self.therapy['improve_beta_blocking'] == 0 and self.therapy['carvedilolo_beta_blocking'] == self.STARTING_BB_DOSE:
+                if self.calculate_dt():
+                    self.last_bb_incr = int(datetime.now().timestamp())
+                    self.therapy['carvedilolo_beta_blocking'] -= self.INCR_BB_DOSE
+                    print(f"Beta-bloccante base diminuito a {self.therapy['carvedilolo_beta_blocking']}")
         else:
-            if status.get('heart_rate') == 'PRIMARY_TACHYCARDIA':
-                if trend.get('hr') == 'STABLE' and self.therapy['carvedilolo_beta_blocking'] < 1.25:
-                    self.therapy['carvedilolo_beta_blocking'] = 1.25
-                    """print(f"Beta-bloccante impostato a {self.therapy['carvedilolo_beta_blocking']} mg (PRIMARY_TACHYCARDIA - STABLE)")"""
-                elif trend.get('hr') == 'DETERIORING' and (self.therapy['carvedilolo_beta_blocking'] + self.therapy['improve_beta_blocking']) < self.beta_blocking_target_dose:
-                    self.therapy['improve_beta_blocking'] += 0.25
-                    """print(f"Beta-bloccante miglioramento aumentato a {self.therapy['improve_beta_blocking']} mg (PRIMARY_TACHYCARDIA - DETERIORATING)")"""
+            if status['heart_rate'] == 'PRIMARY_TACHYCARDIA':
+                if trend['hr'] == 'STABLE' and self.therapy['carvedilolo_beta_blocking'] < self.STARTING_BB_DOSE:
+                    self.last_bb_incr = int(datetime.now().timestamp())
+                    self.therapy['carvedilolo_beta_blocking'] = self.STARTING_BB_DOSE
+                    print(f"Beta-bloccante dose iniziale a {self.therapy['carvedilolo_beta_blocking']} mg (PRIMARY_TACHYCARDIA - STABLE)")
+                elif trend['hr'] == 'DETERIORING' and (self.therapy['carvedilolo_beta_blocking'] + self.therapy['improve_beta_blocking']) <= self.beta_blocking_target_dose:
+                    if self.calculate_dt():
+                        self.last_bb_incr = int(datetime.now().timestamp())
+                        self.therapy['improve_beta_blocking'] += self.INCR_BB_DOSE
+                        print(f"Beta-bloccante aumentato a {self.therapy['improve_beta_blocking']} mg (PRIMARY_TACHYCARDIA - DETERIORATING)")
         
         # Gestione fluidi e pressione
         if status.get('blood_pressure') == 'MODERATE_HYPOTENSION':
             if trend.get('map') == 'STABLE':
                 self.therapy['fluids'] = 'BOLUS'
-                """print("Fluidi: BOLUS attivato (MODERATE_HYPOTENSION - STABLE)")"""
-            elif trend.get('map') == 'DETERIORATING':
+                print("Fluidi: BOLUS attivato (MODERATE_HYPOTENSION - STABLE)")
+            elif trend.get('map') == 'DETERIORING':
                 self.therapy['fluids'] = 'BOLUS'
-                self.therapy['alert'] = "MODERATE_HYPOTENSION_DETERIORATING"
-                """print("ALERT: Ipotensione moderata in peggioramento - BOLUS attivato")"""
+                self.therapy['alert'].append("MODERATE_HYPOTENSION")
+                print("ALERT: Ipotensione moderata in peggioramento - BOLUS attivato")
         
-        if status.get('blood_pressure') == 'SHOCK' and trend.get('map') not in ['IMPROVING', 'DETERIORING']:
-            self.therapy['alert'] = "SHOCK"
-            """print("ALERT: Shock rilevato")"""
-        
+        if status.get('blood_pressure') == 'SHOCK' and trend.get('map') != 'IMPROVING' and intensity['map'] not in ['MODERATE_INCREASE', 'STRONG_INCREASE']:
+            self.therapy['alert'].append("SHOCK")
+            print("ALERT: Shock rilevato")
         if status.get('blood_pressure') == 'DISTRESS_OVERLOAD' and trend.get('spo2') == 'DETERIORING':
-            self.therapy['fluids'] = 'STOP'
-            self.therapy['alert'] = "DISTRESS_OVERLOAD"
-            """print("ALERT: Sovraccarico + distress - fluidi STOP")"""
+            self.therapy['alert'].append("DISTRESS_OVERLOAD")
+            print("ALERT: Sovraccarico + distress - fluidi STOP")
         
         if status.get('blood_pressure') == 'CIRCULARITY_UNSTABILITY':
             if trend.get('map') == 'IMPROVING':
                 self.therapy['fluids'] = 'BOLUS'
-                """print("Fluidi: BOLUS attivato (CIRCULARITY_UNSTABILITY - IMPROVING)")"""
+                print("Fluidi: BOLUS attivato (CIRCULARITY_UNSTABILITY - IMPROVING)")
             elif trend.get('map') in ['STABLE', 'DETERIORING'] and self.therapy['carvedilolo_beta_blocking'] == 0 and self.therapy['improve_beta_blocking'] == 0:
                 self.therapy['carvedilolo_beta_blocking'] = 1.25
-                """print(f"Beta-bloccante impostato a {self.therapy['carvedilolo_beta_blocking']} mg (CIRCULARITY_UNSTABILITY)")"""
+                print(f"Beta-bloccante impostato a {self.therapy['carvedilolo_beta_blocking']} mg (CIRCULARITY_UNSTABILITY)")
 
 # Variabili globali per gestire lo shutdown
 planner = Planner()
@@ -265,31 +311,26 @@ def on_connect(client, userdata, flags, rc, properties):
     else:
         print(f"[PLANNER] Errore di connessione MQTT: {rc}")
 
+
+
 def on_message(client, userdata, msg):
     """Callback per messaggi MQTT in arrivo."""
     try:
+        global planner
         payload = msg.payload.decode()
         obj = json.loads(payload)
-        """ 
+        
         print(f"\n{'='*60}")
         print(f"Ricevuto messaggio da {msg.topic}")
         print(f"Timestamp: {obj.get('timestamp', 'N/A')}")
         print(f"Dati: {json.dumps(obj, indent=2)}")
-        """
-        
-        # Aggiorna timestamp della terapia
-        planner.therapy['timestamp'] = datetime.now().isoformat()
         
         # Applica logica del planner
-        planner.define_ox_therapy(obj)
         planner.pharmacy_therapy(obj)
-        
-        # Invia stato aggiornato
-        send_status(client, planner.therapy)
-        
-        # Resetta alert (se non critico)
-        if planner.therapy['alert'] not in ['SHOCK', 'RESPIRATORY_DISTRESS', 'FAILURE_OXYGEN_THERAPY']:
-            planner.therapy['alert'] = None
+        planner.ox_therapy(obj)
+        planner.stop_beta_blocking(obj)
+        planner.stop_fluids(obj)
+
             
     except json.JSONDecodeError as e:
         print(f"Errore nel parsing JSON: {e}")
@@ -298,6 +339,19 @@ def on_message(client, userdata, msg):
         print(f"Errore nell'elaborazione del messaggio: {e}")
         import traceback
         traceback.print_exc()
+def has_therapy_changed(old_therapy, therapy):
+    if old_therapy is None or therapy is None:
+        return False
+    for key in therapy.keys():
+        if key == 'timestamp':
+            continue  
+        old_val = old_therapy.get(key)
+        new_val = therapy.get(key)
+        
+        if old_val != new_val:
+            return True
+    return False
+
 
 def send_status(client, status):
     """Pubblica lo stato della terapia."""
@@ -342,7 +396,35 @@ def cleanup():
             print(f"[PLANNER] Errore nella chiusura InfluxDB: {e}")
     
     print("[PLANNER] Pulizia completata")
+def planner_loop(influx_client,query_api,mqtt_client,planner):
+    old_therapy = None
+    try:
+        print("\n[PLANNER] Planner in esecuzione...")
+        print("[PLANNER] Premi Ctrl+C per fermare\n")
+        
+        while running:
+            time.sleep(10)
+            
+            #print("old_therapy: \n",old_therapy)
+            #print("therapy: \n", planner.therapy)
 
+            if has_therapy_changed(old_therapy,planner.therapy):
+                planner.therapy['timestamp'] = datetime.now().isoformat()
+                send_status(mqtt_client, planner.therapy)
+                print(planner.therapy)
+                planner.therapy['alert'] = []
+                old_therapy = planner.therapy.copy()
+            old_therapy = planner.therapy.copy()
+            
+    except KeyboardInterrupt:
+        print("\n[PLANNER] Interruzione da tastiera ricevuta")
+    except Exception as e:
+        print(f"\n[PLANNER] Errore nel loop principale: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        cleanup()
+        print("\n[PLANNER] Planner terminato")
 def main():
     """Funzione principale."""
     global mqtt_client, influx_client, running
@@ -359,6 +441,8 @@ def main():
             token=INFLUX_TOKEN,
             org=INFLUX_ORG
         )
+        query_api = influx_client.query_api()
+        write_api = influx_client.write_api(write_options=SYNCHRONOUS)
         print("[PLANNER] Connesso a InfluxDB")
     except Exception as e:
         print(f"[PLANNER] Errore connessione InfluxDB: {e}")
@@ -387,41 +471,18 @@ def main():
         print(f"[PLANNER] Errore connessione MQTT: {e}")
         mqtt_client = None
         running = False
-    
-    # Loop principale
+    global planner
+    import threading
+    thread = threading.Thread(target=planner_loop,args=(influx_client,query_api,mqtt_client,planner), daemon=False)
+    thread.start()
     try:
-        print("\n[PLANNER] Planner in esecuzione...")
-        print("[PLANNER] Premi Ctrl+C per fermare\n")
-        
-        heartbeat_count = 0
-        while running:
-            time.sleep(1)
-            heartbeat_count += 1
-            
-            # Heartbeat ogni 30 secondi
-            if heartbeat_count % 30 == 0 and mqtt_client:
-                status_msg = {
-                    "timestamp": datetime.now().isoformat(),
-                    "component": "planner",
-                    "status": "running",
-                    "patient_id": PATIENT_ID,
-                    "heartbeat": heartbeat_count
-                }
-                mqtt_client.publish(
-                    f"acrss/planner/heartbeat/{PATIENT_ID}",
-                    payload=json.dumps(status_msg)
-                )
-                print(f"[PLANNER] Heartbeat inviato ({heartbeat_count})")
-    
+        while thread.is_alive():
+            thread.join(timeout=1)
     except KeyboardInterrupt:
-        print("\n[PLANNER] Interruzione da tastiera ricevuta")
-    except Exception as e:
-        print(f"\n[PLANNER] Errore nel loop principale: {e}")
-        import traceback
-        traceback.print_exc()
+        print("\nMain thread interrupted")
     finally:
-        cleanup()
-        print("\n[PLANNER] Planner terminato")
+        print("Shutting down...")
+
 
 if __name__ == "__main__":
     main()

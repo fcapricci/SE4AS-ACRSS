@@ -36,7 +36,9 @@ METRICS = ["hr", "rr", "spo2", "sbp", "dbp", "map"]
 class Analyzer:
     def __init__(self):
         """Initialize pipeline data"""
-
+        self.hypoxia_starting_time = None
+        self.ox_therapy_monitoring = 600 #secondi
+        self.hypoxia_status = ['LIGHT_HYPOXIA', 'GRAVE_HYPOXIA']
         self.par_initialized = False
         self.EWMA = {}
         self.mu_baseline = None
@@ -157,7 +159,7 @@ class Analyzer:
         elif (average_data["spo2"] < 92).all() and (average_data["spo2"] >= 88).all():
             status["oxigenation"]="LIGHT_HYPOXIA"
         elif (average_data["spo2"] < 88).all(): 
-            if therapy["ox_l_m"] > 6:
+            if therapy["ox_therapy"] >= 6:
                 status["oxigenation"] = "FAILURE_OXYGEN_THERAPY"
             else: 
                 status["oxigenation"] = "GRAVE_HYPOXIA"
@@ -418,12 +420,34 @@ class Analyzer:
         return metric_trends
 
 
-
+therapy = {}
 def send_status( client, status):
     client.publish(f'acrss/analyzer/{PATIENT_ID}/status', payload=status)
-def _on_mqtt_disconnect( client, userdata, rc, properties=None):
+def _on_mqtt_disconnect( client, userdata, rc, properties):
     """Callback per disconnessione MQTT"""
     print(f"  MQTT disconnesso (code: {rc})")
+def on_connect(client, userdata, flags, rc, properties):
+    """Callback per connessione MQTT."""
+
+    if rc == 0:
+        print(f"[PLANNER] Connesso al broker MQTT con successo")
+        client.subscribe("acrss/plan/#")
+        print(f"[PLANNER] Sottoscritto a acrss/analyzer/#")
+    else:
+        print(f"[PLANNER] Errore di connessione MQTT: {rc}")
+def on_message(client, userdata, msg):
+    try:
+        global therapy
+        payload = msg.payload.decode()
+        obj = json.loads(payload)
+        therapy = obj
+    except json.JSONDecodeError as e:
+        print(f"Errore nel parsing JSON: {e}")
+        print(f"Payload ricevuto: {msg.payload}")
+    except Exception as e:
+        print(f"Errore nell'elaborazione del messaggio: {e}")
+        import traceback
+        traceback.print_exc()
 
 def read_data(query_api,measurement='vitals_raw', minutes=5, limit=1000):
         """Reads data from InfluxDB"""
@@ -482,12 +506,12 @@ def analysis_loop(influx_client,query_api,mqtt_client,analyzer):
         if not influx_client:
             print("Cannot connect to InfluxDB")
             return
-            
+        global therapy
         while True:
             time.sleep(1)
             if not analyzer.par_initialized:
                 print("Initialization mu and signma")
-                time.sleep(60)
+                #time.sleep(1)
                 raw_data = read_data(query_api)
                 analyzer.initialize_baseline(raw_data)
                 analyzer.par_initialized = True    
@@ -515,9 +539,10 @@ def analysis_loop(influx_client,query_api,mqtt_client,analyzer):
             slope = analyzer.calculate_slope(raw_data,data_slow_filtered, data_fast_filtered)
             slope_trend = analyzer.classify_all_slopes(slope)
             
-            therapy = {"ox_l_m":2,"beta_blocking":False,"fluid":False}
+            
             
             status = analyzer.generate_status(agg_data,therapy)
+            analyzer.hypoxia_starting_time = int(datetime.now().timestamp()) if status['oxigenation'] not in analyzer.hypoxia_status else analyzer.hypoxia_starting_time
             ts_ms = int(datetime.now().timestamp() * 1000)
             if mqtt_client:
                 status_patient = {
@@ -559,6 +584,8 @@ def main():
             callback_api_version=mqtt.CallbackAPIVersion.VERSION2
         )
         mqtt_client.on_disconnect = _on_mqtt_disconnect
+        mqtt_client.on_connect = on_connect
+        mqtt_client.on_message = on_message
         mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
         mqtt_client.loop_start()
         print("Connected to MQTT!")
