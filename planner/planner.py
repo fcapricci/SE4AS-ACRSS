@@ -176,6 +176,26 @@ class Planner():
             self.therapy['carvedilolo_beta_blocking'] = 0
             self.therapy['improve_beta_blocking'] = 0
             print('ARBITRATION: BETA_BLOCKERS_FORBIDDEN_BRADYPNEA')
+    def fluids_escalation(self,patient_state):
+        fluid_val = self.therapy['fluids']
+        status = patient_state['status']
+        trend = patient_state['trend']
+        intensity = patient_state['intensity']
+        if fluid_val is not None:
+            if status['blood_pressure'] != 'CIRCULARITY_UNSTABILITY' and status['blood_pressure'] != 'MODERATE_HYPOTENSION' and (status['blood_pressure'] != 'SHOCK'):
+                print(f"1 BLOOD_PRESSURE = {status['blood_pressure']} STABILIZATED -> STOP FLUIDS")
+                self.therapy['fluids'] = None
+            else:
+                if status['blood_pressure'] == 'MODERATE_HYPOTENSION' and trend['map'] not in ['STABLE','DETERIORING']:
+                    print(f"3 BLOOD_PRESSURE = {status['blood_pressure']} STABILIZATED -> STOP FLUIDS")
+                    self.therapy['fluids'] = None
+                elif status['blood_pressure'] == 'SHOCK' and trend['map'] != 'IMPROVING':
+                    print(f"3 BLOOD_PRESSURE IN DECREASING {status['blood_pressure']} STATE -> STOP FLUIDS")
+                    self.therapy['fluids'] = None
+                """elif trend['map'] == 'DETERIORING' and intensity['map'] not in ['MODERATE_DECREASE', 'STRONG_DECREASE']:
+                    print(f"4 BLOOD_PRESSURE = {status['blood_pressure']} STABILIZATED -> STOP FLUIDS")
+                    self.therapy['fluids'] = None"""
+
     def stop_fluids(self, patient_state):
         status = patient_state.get('status', {})
 
@@ -267,7 +287,7 @@ class Planner():
                     self.therapy['carvedilolo_beta_blocking'] = self.STARTING_BB_DOSE
                     print(f"Beta-bloccante dose iniziale a {self.therapy['carvedilolo_beta_blocking']} mg (PRIMARY_TACHYCARDIA - STABLE)")
                 elif trend['hr'] == 'DETERIORING' and intensity['hr'] == 'STRONG_INCREASE' and (self.therapy['carvedilolo_beta_blocking'] + self.therapy['improve_beta_blocking']) <= self.beta_blocking_target_dose:
-                    print("è dentro il ramo che controlla se incrementare o aggiungere la dose base \n diff time verifica:", self.calculate_dt())
+                    #print("è dentro il ramo che controlla se incrementare o aggiungere la dose base \n diff time verifica:", self.calculate_dt())
                     if self.calculate_dt():
                         self.last_bb_incr = int(datetime.now().timestamp())
                         if self.therapy['carvedilolo_beta_blocking'] == 1.25:
@@ -286,8 +306,8 @@ class Planner():
                 self.therapy['fluids'] = 'BOLUS'
                 self.therapy['alert'].add("MODERATE_HYPOTENSION")
                 print("ALERT: Ipotensione moderata in peggioramento - BOLUS attivato")
-        elif self.therapy['fluids'] == 'BOLUS':
-            self.therapy['fluids'] = None
+        """elif self.therapy['fluids'] == 'BOLUS':
+            self.therapy['fluids'] = None"""
 
         
         if status.get('blood_pressure') == 'SHOCK' and trend.get('map') != 'IMPROVING' and intensity['map'] not in ['MODERATE_INCREASE', 'STRONG_INCREASE']:
@@ -305,13 +325,18 @@ class Planner():
                 self.therapy['carvedilolo_beta_blocking'] = 1.25
                 self.therapy['fluids'] = 'BOLUS'
                 print(f"Beta-bloccante impostato a {self.therapy['carvedilolo_beta_blocking']} mg (CIRCULARITY_UNSTABILITY)")
-        elif self.therapy['fluids'] == 'BOLUS':
-            self.therapy['fluids'] = None
-            print("Fluidi: BOLUS disattivato (CIRCULARITY_UNSTABILITY -> STABILIZED)")
-
-        if status['respiration'] == 'BRADYPNEA':
+        else:
+            """if self.therapy['fluids'] == 'BOLUS':
+                self.therapy['fluids'] = None
+                print("Fluidi: BOLUS disattivato (CIRCULARITY_UNSTABILITY -> STABILIZED)")"""
+            if self.therapy['improve_beta_blocking'] > 0:
+                self.therapy['improve_beta_blocking']-=self.INCR_BB_DOSE
+                print("Beta bloccante decreasing scaling: (CIRCULARITY_UNSTABILITY -> STABILIZED)")
+            elif self.therapy['carvedilolo_beta_blocking'] >0:
+                self.therapy['carvedilolo_beta_blocking']-=self.INCR_BB_DOSE
+        """if status['respiration'] == 'BRADYPNEA':
             print("ALERT: BRADYPNEA - fluidi sospesi")
-            self.therapy['fluids'] = None
+            self.therapy['fluids'] = None"""
 # Variabili globali per gestire lo shutdown
 planner = Planner()
 new_message = False
@@ -345,16 +370,17 @@ def on_message(client, userdata, msg):
         payload = msg.payload.decode()
         obj = json.loads(payload)
         
-        """print(f"\n{'='*60}")
+        print(f"\n{'='*60}")
         print(f"Ricevuto messaggio da {msg.topic}")
         print(f"Timestamp: {obj.get('timestamp', 'N/A')}")
-        print(f"Dati: {json.dumps(obj, indent=2)}")"""
-        
+        print(f"Dati: {json.dumps(obj, indent=2)}")
+        planner.therapy['alert'].clear()  
         # Applica logica del planner
-        """planner.pharmacy_therapy(obj)
+        planner.pharmacy_therapy(obj)
         planner.ox_therapy(obj)
         planner.stop_beta_blocking(obj)
-        planner.stop_fluids(obj)"""
+        planner.fluids_escalation(obj)
+        planner.stop_fluids(obj)
         new_message = True
             
     except json.JSONDecodeError as e:
@@ -427,14 +453,16 @@ def planner_loop(influx_client,query_api,mqtt_client,planner):
     try:
         print("\n[PLANNER] Planner in esecuzione...")
         print("[PLANNER] Premi Ctrl+C per fermare\n")
-        obj = {
+        #test scaling bb
+        """obj = {
                 'status':{  'oxigenation':'STABLE_SATURATION',
                             'respiration':'STABLE_RESPIRATION', 
-                            'heart_rate':'PRIMARY_TACHYCARDIA',
-                            'blood_pressure':'CIRCULARITY_UNSTABILITY'},
+                            'heart_rate':'STABLE_HR',
+                            'blood_pressure':'NORMAL_PERFUSION'},
+                            #'blood_pressure':'CIRCULARITY_UNSTABILITY'},
                 'trend':{'spo2':'STABLE',
                          'rr':'STABLE',
-                         'hr':'DETERIORING',
+                         'hr':'STABLE',
                          'sbp':'STABLE',
                          'dbp':'STABLE',
                          'MAP':'DETERIORING'
@@ -442,19 +470,21 @@ def planner_loop(influx_client,query_api,mqtt_client,planner):
                 'intensity':{
                     'spo2':'STABLE',
                     'rr':'STABLE',
-                    'hr':'STRONG_INCREASE',
+                    'hr':'STABLE',
                     'sbp':'STABLE',
                     'dbp':'STABLE',
                     'MAP':'DETERIORING'
                 }
         }
+        planner.therapy = {'ox_therapy': 0, 'fluids': None, 'carvedilolo_beta_blocking': 1.25, 'improve_beta_blocking': 9.0, 'alert': set(), 'timestamp': '2026-01-27T15:22:47.244083'}"""
         while running:
             time.sleep(10)
-            print(obj)
+            
+            """print(obj)
             planner.pharmacy_therapy(obj)
             planner.ox_therapy(obj)
             planner.stop_beta_blocking(obj)
-            planner.stop_fluids(obj)
+            planner.stop_fluids(obj)"""
             
             print("old_therapy: \n",old_therapy)
             print("therapy: \n", planner.therapy)
@@ -462,11 +492,11 @@ def planner_loop(influx_client,query_api,mqtt_client,planner):
             if has_therapy_changed(old_therapy,planner.therapy) and new_message == True:
                 planner.therapy['timestamp'] = datetime.now().isoformat()
                 send_status(mqtt_client, planner.therapy)
-                print("dentro")
+                print(planner.therapy)
                 new_message = False
             
             old_therapy = copy.deepcopy(planner.therapy)
-            planner.therapy['alert'].clear()    
+              
             
     except KeyboardInterrupt:
         print("\n[PLANNER] Interruzione da tastiera ricevuta")
