@@ -126,7 +126,7 @@ class Planner():
             'alert': set(),
             'timestamp': None
         } 
-        self.dt_incr = 80640 # seconds per day
+        self.dt_incr = 5 # seconds per day
         self.MAX_NON_INVASIVE_OX_THERAPY = 6
         self.STARTING_BB_DOSE = 1.25
         self.INCR_BB_DOSE = 0.25
@@ -141,15 +141,16 @@ class Planner():
     def stop_beta_blocking(self, patient_state):
         status = patient_state.get('status', {})
 
-        if status.get('blood_pressure') == 'SHOCK' and self.therapy['carvedilolo_beta_blocking'] != 0 :
-            self.bb_active_therapy['carvedilolo_beta_blocking'] = self.therapy['carvedilolo_beta_blocking']
-            self.bb_active_therapy['improve_beta_blocking'] = self.therapy['improve_beta_blocking']
-            self.therapy['carvedilolo_beta_blocking'] = 0
-            self.therapy['improve_beta_blocking'] = 0
-            self.therapy['carvedilolo_beta_blocking'] = 0
-            self.therapy['improve_beta_blocking'] = 0
-            print('ARBITRATION: BETA_BLOCKERS_BLOCKED_SHOCK')
-        else:
+        if status.get('blood_pressure') == 'SHOCK':
+            if self.therapy['carvedilolo_beta_blocking'] != 0 :
+                self.bb_active_therapy['carvedilolo_beta_blocking'] = self.therapy['carvedilolo_beta_blocking']
+                self.bb_active_therapy['improve_beta_blocking'] = self.therapy['improve_beta_blocking']
+                self.therapy['carvedilolo_beta_blocking'] = 0
+                self.therapy['improve_beta_blocking'] = 0
+                self.therapy['carvedilolo_beta_blocking'] = 0
+                self.therapy['improve_beta_blocking'] = 0
+                print('ARBITRATION: BETA_BLOCKERS_BLOCKED_SHOCK')
+        elif self.bb_active_therapy['carvedilolo_beta_blocking'] > 0 :
             print("beta bloccante riattivato")
             self.therapy['carvedilolo_beta_blocking'] = self.bb_active_therapy['carvedilolo_beta_blocking'] 
             self.therapy['improve_beta_blocking'] = self.bb_active_therapy['improve_beta_blocking']
@@ -157,13 +158,14 @@ class Planner():
             self.bb_active_therapy['improve_beta_blocking'] = 0
         
 
-        if status.get('oxigenation') == 'GRAVE_HYPOXIA' and self.therapy['carvedilolo_beta_blocking'] !=0 :
-            self.bb_active_therapy['carvedilolo_beta_blocking'] = self.therapy['carvedilolo_beta_blocking']
-            self.bb_active_therapy['improve_beta_blocking'] = self.therapy['improve_beta_blocking']
-            self.therapy['carvedilolo_beta_blocking'] = 0
-            self.therapy['improve_beta_blocking'] = 0
-            print('ARBITRATION: BETA_BLOCKERS_BLOCKED_GRAVE_HYPOXIA')
-        else:
+        if status.get('oxigenation') == 'GRAVE_HYPOXIA':
+            if self.therapy['carvedilolo_beta_blocking'] !=0:
+                self.bb_active_therapy['carvedilolo_beta_blocking'] = self.therapy['carvedilolo_beta_blocking']
+                self.bb_active_therapy['improve_beta_blocking'] = self.therapy['improve_beta_blocking']
+                self.therapy['carvedilolo_beta_blocking'] = 0
+                self.therapy['improve_beta_blocking'] = 0
+                print('ARBITRATION: BETA_BLOCKERS_BLOCKED_GRAVE_HYPOXIA')
+        elif self.bb_active_therapy['carvedilolo_beta_blocking'] > 0 :
             print("beta bloccante riattivato")
             self.therapy['carvedilolo_beta_blocking'] = self.bb_active_therapy['carvedilolo_beta_blocking'] 
             self.therapy['improve_beta_blocking'] = self.bb_active_therapy['improve_beta_blocking']
@@ -190,6 +192,9 @@ class Planner():
             print('ARBITRATION: FLUIDS_FORBIDDEN_OVERLOAD')
 
     def calculate_dt(self):
+        if self.last_bb_incr is None:
+            self.last_bb_incr = int(datetime.now().timestamp())
+
         return int(datetime.now().timestamp()) - int(self.last_bb_incr) > self.dt_incr
 
     def ox_therapy(self, patient_state):
@@ -236,7 +241,7 @@ class Planner():
             print("ALERT: RESPIRATORY_DISTRESS - fluidi sospesi")
         elif status['respiration'] == 'BRADYPNEA':
             self.therapy['alert'].add('BRADYPNEA')
-            print("ALERT: BRADYPNEA - fluidi sospesi")
+            
 
     def pharmacy_therapy(self, patient_state):
         status = patient_state.get('status', {})
@@ -244,7 +249,8 @@ class Planner():
         intensity = patient_state.get('intensity', {})
 
         # Gestione beta-bloccanti
-        if status['heart_rate'] == 'STABLE_HR' and trend.get('hr') != 'DETERIORING':
+        # Gestione decremento bb
+        if status['heart_rate'] == 'STABLE_HR' and trend.get('hr') != 'IMPROVING':
             if self.therapy['improve_beta_blocking'] > 0 and self.calculate_dt():
                 self.last_bb_incr = int(datetime.now().timestamp())
                 self.therapy['improve_beta_blocking'] -= self.INCR_BB_DOSE
@@ -254,17 +260,22 @@ class Planner():
                     self.last_bb_incr = int(datetime.now().timestamp())
                     self.therapy['carvedilolo_beta_blocking'] -= self.INCR_BB_DOSE
                     print(f"Beta-bloccante base diminuito a {self.therapy['carvedilolo_beta_blocking']}")
-        else:
-            if status['heart_rate'] == 'PRIMARY_TACHYCARDIA':
-                if trend['hr'] == 'STABLE' and self.therapy['carvedilolo_beta_blocking'] < self.STARTING_BB_DOSE:
+        # Gestione incremento bb
+        elif status['heart_rate'] == 'PRIMARY_TACHYCARDIA':
+                if trend['hr'] == 'STABLE' and self.therapy['carvedilolo_beta_blocking'] == 0:
                     self.last_bb_incr = int(datetime.now().timestamp())
                     self.therapy['carvedilolo_beta_blocking'] = self.STARTING_BB_DOSE
                     print(f"Beta-bloccante dose iniziale a {self.therapy['carvedilolo_beta_blocking']} mg (PRIMARY_TACHYCARDIA - STABLE)")
-                elif trend['hr'] == 'DETERIORING' and (self.therapy['carvedilolo_beta_blocking'] + self.therapy['improve_beta_blocking']) <= self.beta_blocking_target_dose:
+                elif trend['hr'] == 'DETERIORING' and intensity['hr'] == 'STRONG_INCREASE' and (self.therapy['carvedilolo_beta_blocking'] + self.therapy['improve_beta_blocking']) <= self.beta_blocking_target_dose:
+                    print("è dentro il ramo che controlla se incrementare o aggiungere la dose base \n diff time verifica:", self.calculate_dt())
                     if self.calculate_dt():
                         self.last_bb_incr = int(datetime.now().timestamp())
-                        self.therapy['improve_beta_blocking'] += self.INCR_BB_DOSE
-                        print(f"Beta-bloccante aumentato a {self.therapy['improve_beta_blocking']} mg (PRIMARY_TACHYCARDIA - DETERIORATING)")
+                        if self.therapy['carvedilolo_beta_blocking'] == 1.25:
+                            self.therapy['improve_beta_blocking'] += self.INCR_BB_DOSE
+                            print(f"Beta-bloccante aumentato a {self.therapy['improve_beta_blocking']} mg (PRIMARY_TACHYCARDIA - DETERIORATING)")
+                    else:
+                        self.therapy['carvedilolo_beta_blocking'] = self.STARTING_BB_DOSE
+
         
         # Gestione fluidi e pressione
         if status.get('blood_pressure') == 'MODERATE_HYPOTENSION':
@@ -275,6 +286,9 @@ class Planner():
                 self.therapy['fluids'] = 'BOLUS'
                 self.therapy['alert'].add("MODERATE_HYPOTENSION")
                 print("ALERT: Ipotensione moderata in peggioramento - BOLUS attivato")
+        elif self.therapy['fluids'] == 'BOLUS':
+            self.therapy['fluids'] = None
+
         
         if status.get('blood_pressure') == 'SHOCK' and trend.get('map') != 'IMPROVING' and intensity['map'] not in ['MODERATE_INCREASE', 'STRONG_INCREASE']:
             self.therapy['alert'].add("SHOCK")
@@ -289,10 +303,18 @@ class Planner():
                 print("Fluidi: BOLUS attivato (CIRCULARITY_UNSTABILITY - IMPROVING)")
             elif trend.get('map') in ['STABLE', 'DETERIORING'] and self.therapy['carvedilolo_beta_blocking'] == 0 and self.therapy['improve_beta_blocking'] == 0:
                 self.therapy['carvedilolo_beta_blocking'] = 1.25
+                self.therapy['fluids'] = 'BOLUS'
                 print(f"Beta-bloccante impostato a {self.therapy['carvedilolo_beta_blocking']} mg (CIRCULARITY_UNSTABILITY)")
+        elif self.therapy['fluids'] == 'BOLUS':
+            self.therapy['fluids'] = None
+            print("Fluidi: BOLUS disattivato (CIRCULARITY_UNSTABILITY -> STABILIZED)")
 
+        if status['respiration'] == 'BRADYPNEA':
+            print("ALERT: BRADYPNEA - fluidi sospesi")
+            self.therapy['fluids'] = None
 # Variabili globali per gestire lo shutdown
 planner = Planner()
+new_message = False
 mqtt_client = None
 influx_client = None
 running = True
@@ -319,20 +341,21 @@ def on_message(client, userdata, msg):
     """Callback per messaggi MQTT in arrivo."""
     try:
         global planner
+        global new_message
         payload = msg.payload.decode()
         obj = json.loads(payload)
         
-        print(f"\n{'='*60}")
+        """print(f"\n{'='*60}")
         print(f"Ricevuto messaggio da {msg.topic}")
         print(f"Timestamp: {obj.get('timestamp', 'N/A')}")
-        print(f"Dati: {json.dumps(obj, indent=2)}")
+        print(f"Dati: {json.dumps(obj, indent=2)}")"""
         
         # Applica logica del planner
-        planner.pharmacy_therapy(obj)
+        """planner.pharmacy_therapy(obj)
         planner.ox_therapy(obj)
         planner.stop_beta_blocking(obj)
-        planner.stop_fluids(obj)
-
+        planner.stop_fluids(obj)"""
+        new_message = True
             
     except json.JSONDecodeError as e:
         print(f"Errore nel parsing JSON: {e}")
@@ -343,7 +366,7 @@ def on_message(client, userdata, msg):
         traceback.print_exc()
 def has_therapy_changed(old_therapy, therapy):
     if old_therapy is None or therapy is None:
-        return False
+        return True
     for key in therapy.keys():
         if key == 'timestamp':
             continue  
@@ -400,23 +423,50 @@ def cleanup():
     print("[PLANNER] Pulizia completata")
 def planner_loop(influx_client,query_api,mqtt_client,planner):
     old_therapy = None
-
+    global new_message
     try:
         print("\n[PLANNER] Planner in esecuzione...")
         print("[PLANNER] Premi Ctrl+C per fermare\n")
-        
+        obj = {
+                'status':{  'oxigenation':'STABLE_SATURATION',
+                            'respiration':'STABLE_RESPIRATION', 
+                            'heart_rate':'PRIMARY_TACHYCARDIA',
+                            'blood_pressure':'CIRCULARITY_UNSTABILITY'},
+                'trend':{'spo2':'STABLE',
+                         'rr':'STABLE',
+                         'hr':'DETERIORING',
+                         'sbp':'STABLE',
+                         'dbp':'STABLE',
+                         'MAP':'DETERIORING'
+                },
+                'intensity':{
+                    'spo2':'STABLE',
+                    'rr':'STABLE',
+                    'hr':'STRONG_INCREASE',
+                    'sbp':'STABLE',
+                    'dbp':'STABLE',
+                    'MAP':'DETERIORING'
+                }
+        }
         while running:
             time.sleep(10)
+            print(obj)
+            planner.pharmacy_therapy(obj)
+            planner.ox_therapy(obj)
+            planner.stop_beta_blocking(obj)
+            planner.stop_fluids(obj)
             
-            #print("old_therapy: \n",old_therapy)
-            #print("therapy: \n", planner.therapy)
+            print("old_therapy: \n",old_therapy)
+            print("therapy: \n", planner.therapy)
 
-            if has_therapy_changed(old_therapy,planner.therapy):
+            if has_therapy_changed(old_therapy,planner.therapy) and new_message == True:
                 planner.therapy['timestamp'] = datetime.now().isoformat()
                 send_status(mqtt_client, planner.therapy)
-                print(planner.therapy)
-                planner.therapy['alert'].clear()
-                old_therapy = copy.deepcopy(planner.therapy)
+                print("dentro")
+                new_message = False
+            
+            old_therapy = copy.deepcopy(planner.therapy)
+            planner.therapy['alert'].clear()    
             
     except KeyboardInterrupt:
         print("\n[PLANNER] Interruzione da tastiera ricevuta")
