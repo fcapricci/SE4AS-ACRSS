@@ -10,6 +10,9 @@ class MQTT_Handler:
     MQTT_HOSTNAME = getenv("MQTT_HOSTNAME")
     MQTT_PORT = getenv("MQTT_PORT")
 
+    THERAPIES_TOPICS = "therapies/+"
+    ACTUATORS_TOPIC= "actuators"
+
     CLIENT = None
 
     @classmethod
@@ -54,7 +57,7 @@ class MQTT_Handler:
 
             # Subscribe on connection succeeded
             # to handle reconnection scenarios
-            cls.CLIENT.subscribe("therapies/+", qos=2)
+            cls.CLIENT.subscribe(cls.THERAPIES_TOPICS, qos=2)
     
     @staticmethod
     def on_message(client, userdata, message : mqtt.MQTTMessage) -> None:
@@ -80,7 +83,7 @@ class MQTT_Handler:
 
         for actuator in actions.keys():
             cls.CLIENT.publish(
-                topic = f'actuators/{patientID}/{actuator}',
+                topic = f'{cls.ACTUATORS_TOPIC}/{patientID}/{actuator}',
                 payload = actions[actuator],
                 qos = 2
             )
