@@ -1,9 +1,6 @@
 from os import getenv
-import json
 import paho.mqtt.client as mqtt
 from paho.mqtt.reasoncodes import ReasonCode
-
-from therapy import Therapy
 
 class MQTT_Handler:
 
@@ -25,20 +22,23 @@ class MQTT_Handler:
 
         # Setup
 
-        ## Callbacks
+        ## Set monitoring callbacks
         client.on_connect = cls.on_connect
         client.on_subscribe = cls.on_subscribe
-        client.on_message = cls.on_message
         client.on_publish = cls.on_publish
         client.on_disconnect = cls.on_disconnect
 
         # Set instance
         cls.CLIENT = client
+    
+    @classmethod
+    def set_on_message(cls, on_message_callback) -> None:
+        cls.CLIENT.on_message = on_message_callback
 
     @classmethod
     def get_therapies(cls) -> None:
 
-        # Connect client to broker
+        # Connect client with broker
         cls.CLIENT.connect(
             cls.MQTT_HOSTNAME,
             cls.MQTT_PORT
@@ -58,25 +58,6 @@ class MQTT_Handler:
             # Subscribe on connection succeeded
             # to handle reconnection scenarios
             cls.CLIENT.subscribe(cls.THERAPIES_TOPICS, qos=2)
-    
-    @staticmethod
-    def on_message(client, userdata, message : mqtt.MQTTMessage) -> None:
-        
-        # Build therapy object
-
-        ## Parse patient id from topic name: "therapies/{patient_id}"
-        patient_id = int(message.topic.split("/")[1])
-
-        ## Parse fields values from message payload
-        data = json.loads(message.payload.decode())
-
-        therapy : Therapy = Therapy(
-            patient_id,
-            data["ox_therapy"],
-            data["fluids"],
-            data["esmolo_beta_blocking"],
-            data["alert"]
-        )
 
     @classmethod
     def publish_actuators_actions(cls, actions : dict, patientID : int) -> None:
