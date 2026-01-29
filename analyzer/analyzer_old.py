@@ -3,8 +3,23 @@ import json
 import time
 from datetime import datetime
 from collections import deque
+
+import paho.mqtt.client as mqtt
+from influxdb_client import InfluxDBClient, Point, WritePrecision
+from influxdb_client.client.query_api import QueryApi
+
+from influxdb_client.client.write_api import SYNCHRONOUS
 import pandas as pd
 import numpy as np
+
+MQTT_BROKER = os.getenv("MQTT_BROKER", "mosquitto")
+MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
+SOURCE = "sim"
+INFLUX_URL = os.getenv("INFLUX_URL", "http://influxdb:8086")
+INFLUX_TOKEN = os.getenv("INFLUX_TOKEN", "acrss-super-token")
+INFLUX_ORG = os.getenv("INFLUX_ORG", "acrss")
+INFLUX_BUCKET = os.getenv("INFLUX_BUCKET", "acrss")
+
 PATIENT_ID = os.getenv("PATIENT_ID", "p1")
 SLOPE_THRESHOLDS_5MIN = {
     "hr":   [-75, -25,  25,  75],   # bpm / 5 min
@@ -32,7 +47,7 @@ class Analyzer:
         self.adaptive_window = 100  # Numero di campioni per adattamento baseline
         self.alpha_baseline = 0.05  # Fattore di smoothing per baseline adattativa
         self.outlier_threshold = 3.0  # Soglia per identificare outlier (in deviazioni standard)
-        self.therapy = None
+
 
     def update_adaptive_baseline(self, metric, new_value, is_outlier=False):
         """
@@ -139,7 +154,6 @@ class Analyzer:
     def generate_status(self,average_data,therapy:dict):
         status = {}
         # oxygen check
-        #print("therapy dentro generate status ", therapy)
         if (average_data["spo2"] >= 92).all() and ((average_data["rr"] >=12).all() and (average_data["rr"] <= 24).all()):
             status["oxigenation"]="STABLE_RESPIRATION"
         elif (average_data["spo2"] < 92).all() and (average_data["spo2"] >= 88).all():
@@ -404,3 +418,199 @@ class Analyzer:
             else:
                 metric_trends[c] = "STABLE"
         return metric_trends
+
+
+therapy = {
+            'ox_therapy': 0, 
+            'fluids': None, 
+            'carvedilolo_beta_blocking': 0,
+            'improve_beta_blocking': 0,
+            'alert': set(),
+            'timestamp': None
+        }
+def send_status( client, status):
+    client.publish(f'acrss/analyzer/{PATIENT_ID}/status', payload=status)
+def on_disconnect(client, userdata, reason_code, properties):
+    """Callback per disconnessione MQTT"""
+    print(f"  MQTT disconnesso (code: {reason_code})")
+def on_connect(client, userdata, flags, rc, properties):
+    """Callback per connessione MQTT."""
+
+    if rc == 0:
+        print(f"[PLANNER] Connesso al broker MQTT con successo")
+        client.subscribe("acrss/plan/#")
+        print(f"[PLANNER] Sottoscritto a acrss/analyzer/#")
+    else:
+        print(f"[PLANNER] Errore di connessione MQTT: {rc}")
+def on_message(client, userdata, msg):
+    try:
+        global therapy
+        payload = msg.payload.decode()
+        obj = json.loads(payload)
+        therapy = obj
+    except json.JSONDecodeError as e:
+        print(f"Errore nel parsing JSON: {e}")
+        print(f"Payload ricevuto: {msg.payload}")
+    except Exception as e:
+        print(f"Errore nell'elaborazione del messaggio: {e}")
+        import traceback
+        traceback.print_exc()
+
+def read_data(query_api,measurement='vitals_raw', minutes=5, limit=1000):
+        """Reads data from InfluxDB"""
+        data_dict = {}
+        for m in METRICS:
+            try:
+                query = f'''
+                from(bucket: "{INFLUX_BUCKET}")
+                |> range(start: -{minutes}m)
+                |> filter(fn: (r) => r._measurement == "{measurement}")
+                |> filter(fn: (r) => r.patient_id == "{PATIENT_ID}")
+                |> filter(fn: (r) => r.metric == "{m}")
+                |> sort(columns: ["_time"], desc: true)
+                |> limit(n: {limit})
+                '''
+                results = query_api.query(query)
+                if not results:
+                    print("No data available")
+                    return pd.DataFrame()
+        
+                for table in results:
+                    timestamps = []
+                    values = []
+                    for record in table.records:
+                        timestamps.append(record.get_time())
+                        values.append(record.get_value())
+                    data_dict[f'time_{m}'] = timestamps
+                    data_dict[m] = values
+            except Exception as e:
+                print(f"Error in InfluxDB query: {e}")
+                import traceback
+                traceback.print_exc()
+                return pd.DataFrame()
+        col = [i for i in data_dict.keys()]
+        data = pd.DataFrame(columns=col)
+        min_len = min([len(data_dict[i]) for i in data_dict.keys()])
+        for k in col:
+            data[k] = data_dict[k][:min_len]
+        data = data.iloc[::-1].reset_index(drop=True)
+        return data
+
+def cleanup(mqtt_client, influx_client):
+    """Pulizia risorse"""
+    if mqtt_client:
+        mqtt_client.loop_stop()
+        mqtt_client.disconnect()
+        print("MQTT disconnected")
+    
+    if influx_client:
+        influx_client.close()
+        print("InfluxDB closed")
+
+def analysis_loop(influx_client,query_api,mqtt_client,analyzer):
+
+    try:
+        if not influx_client:
+            print("Cannot connect to InfluxDB")
+            return
+        global therapy
+        while True:
+            time.sleep(1)
+            if not analyzer.par_initialized:
+                print("Initialization mu and signma")
+                #time.sleep(1)
+                raw_data = read_data(query_api)
+                analyzer.initialize_baseline(raw_data)
+                analyzer.par_initialized = True    
+            else:        
+                raw_data = read_data(query_api)
+            """
+            print("\n" + "="*50)
+            print("=== Reading data ===")"""
+            
+            agg_data = read_data(query_api,measurement='vitals_agg', limit=1)
+            if raw_data.empty or agg_data.empty:
+                print("No data available, waiting...")
+                continue
+            
+
+            """print("Applying adaptive EWMA slow filter...")"""
+            data_slow_filtered = analyzer.filter_EWMA(raw_data).copy()
+            """print("Applying adaptive EWMA fast filter...")"""
+            data_fast_filtered = analyzer.filter_EWMA(raw_data,alpha_min = 0.2,alpha_max=0.3).copy()
+            
+            trend = analyzer.calculate_trend(data_slow_filtered)
+            #trend = analyzer.calculate_trend(data_fast_filtered,data_slow_filtered)
+            """print("trend values ", trend)"""
+            metric_trend = analyzer.classify_trend(trend)
+            slope = analyzer.calculate_slope(raw_data,data_slow_filtered, data_fast_filtered)
+            slope_trend = analyzer.classify_all_slopes(slope)
+            
+            
+            
+            status = analyzer.generate_status(agg_data,therapy)
+            analyzer.hypoxia_starting_time = int(datetime.now().timestamp()) if status['oxigenation'] not in analyzer.hypoxia_status else analyzer.hypoxia_starting_time
+            ts_ms = int(datetime.now().timestamp() * 1000)
+            if mqtt_client:
+                status_patient = {
+                    'timestamp':ts_ms,
+                    'status': status,
+                    'trend': metric_trend,
+                    'intensity':slope_trend
+                }
+
+            """print(status_patient)"""
+            send_status(mqtt_client, json.dumps(status_patient))
+            
+    except KeyboardInterrupt:
+        print("\nInterrupted by user")
+    except Exception as e:
+        print(f"\nUnexpected error: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+            cleanup(mqtt_client,influx_client)
+
+def main():
+    """Funzione principale"""
+    try:
+        influx_client = InfluxDBClient(
+            url=INFLUX_URL,
+            token=INFLUX_TOKEN,
+            org=INFLUX_ORG
+        )
+        query_api = influx_client.query_api()
+        write_api = influx_client.write_api(write_options=SYNCHRONOUS)
+    except Exception as e:
+        print(f"Connection error {e}")
+        influx_client = None
+        
+    try:
+        mqtt_client = mqtt.Client(
+            client_id="analyzer",
+            callback_api_version=mqtt.CallbackAPIVersion.VERSION2
+        )
+        mqtt_client.on_disconnect = on_disconnect
+        mqtt_client.on_connect = on_connect
+        mqtt_client.on_message = on_message
+        mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
+        mqtt_client.loop_start()
+        print("Connected to MQTT!")
+    except Exception as e:
+        print(f"MQTT connection error: {e}")
+        mqtt_client = None
+
+    analyzer = Analyzer()
+    import threading
+    thread = threading.Thread(target=analysis_loop,args=(influx_client,query_api,mqtt_client,analyzer), daemon=False)
+    thread.start()
+    try:
+        while thread.is_alive():
+            thread.join(timeout=1)
+    except KeyboardInterrupt:
+        print("\nMain thread interrupted")
+    finally:
+        print("Shutting down...")
+
+if __name__ == "__main__":
+    main()

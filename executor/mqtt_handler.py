@@ -74,7 +74,7 @@ class MQTT_Handler:
             patient_id,
             data["ox_therapy"],
             data["fluids"],
-            data["esmolo_beta_blocking"],
+            data["carvedilolo_beta_blocking"],
             data["alert"]
         )
 
