@@ -7,7 +7,7 @@ from paho.mqtt.enums import MQTTProtocolVersion
 class MQTT_Handler:
 
     MQTT_HOSTNAME = getenv("MQTT_HOSTNAME")
-    MQTT_PORT = getenv("MQTT_PORT")
+    MQTT_PORT = int(getenv("MQTT_PORT"))
 
     THERAPIES_TOPICS = "therapies/+"
     ACTUATORS_TOPIC= "actuators"
@@ -61,7 +61,7 @@ class MQTT_Handler:
     def on_connect(cls, client, userdata, flags, reason_code : ReasonCode, properties) -> None:
 
         connection_result = "succeeded" if not reason_code.is_failure else "failed"
-        print(f"[EXECUTOR]: Connection to MQTT broker {connection_result}. Reason code: {int(reason_code)} - {reason_code}.")
+        print(f"[EXECUTOR]: Connection to MQTT broker {connection_result}. Reason code: {reason_code}.")
 
         if connection_result == "succeeded":
 
@@ -116,7 +116,7 @@ class MQTT_Handler:
         for topic, reason_code in zip(topics, reason_code_list):
 
             subscription_result = "succeeded" if not reason_code.is_failure else "failed"
-            print(f"[EXECUTOR]: Subscription to {topic} {subscription_result}. Reason code: {int(reason_code)} - {reason_code}.")
+            print(f"[EXECUTOR]: Subscription to {topic} {subscription_result}. Reason code: {reason_code}.")
 
             if subscription_result == "succeeded":
                 
@@ -129,5 +129,5 @@ class MQTT_Handler:
     def on_disconnect(client, userdata, disconnect_flags, reason_code : ReasonCode, properties) -> None:
 
         if not reason_code == "Normal disconnection":
-            print(f"[EXECUTOR]: Unexpected disconnection. Reason code: {int(reason_code)} - {reason_code}")
+            print(f"[EXECUTOR]: Unexpected disconnection. Reason code: {reason_code}")
         
