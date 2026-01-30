@@ -5,13 +5,13 @@ import json
 from paho.mqtt.client import MQTTMessage
 from therapy import Therapy
 
-# Initialize and setup MQTT client instance
+# Initialize and setup MQTT client
 MQTT_Handler.initialize_client()
 
 # Define message-handling callback
 def on_message(client, userdata, message : MQTTMessage) -> None:
 
-    print(f"[EXECUTOR]: Received message on topic \"{message.topic}\".") 
+    print(f"[EXECUTOR]: Received therapy at {message.topic}.") 
     
     # Build therapy object
 
@@ -23,9 +23,9 @@ def on_message(client, userdata, message : MQTTMessage) -> None:
 
     therapy : Therapy = Therapy(
         patient_id,
-        data["ox_therapy"],
+        data["oxygen"],
         data["fluids"],
-        data["esmolo_beta_blocking"],
+        data["beta_blocking"],
         data["alert"]
     )
 

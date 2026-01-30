@@ -20,7 +20,7 @@ class MQTT_Handler:
         # Initialize instance
         print("[EXECUTOR]: Initializing MQTT client...")
 
-        ## MQTTProtocolVersion 3.1.1 obsolete
+        ## MQTTProtocolVersion 3.1.1 obsolete => No reason codes
         ## CallbackAPIVersion.VERSION1 deprecated
         client = mqtt.Client(
             protocol = MQTTProtocolVersion.MQTTv5,
@@ -32,11 +32,12 @@ class MQTT_Handler:
         ## Set callbacks
         client.on_connect = cls.on_connect
         client.on_subscribe = cls.on_subscribe
-        client.on_publish = cls.on_publish
         client.on_disconnect = cls.on_disconnect
 
         # Set instance
         cls.CLIENT = client
+
+        # Print result
         print("[EXECUTOR]: MQTT client initialization succeeded.")
     
     @classmethod
@@ -47,8 +48,7 @@ class MQTT_Handler:
     def get_therapies(cls) -> None:
 
         # Connect client with broker
-        print("[EXECUTOR]: Connecting to broker...")
-
+        print("[EXECUTOR]: Connecting to MQTT broker...")
         cls.CLIENT.connect(
             cls.MQTT_HOSTNAME,
             cls.MQTT_PORT
@@ -61,13 +61,13 @@ class MQTT_Handler:
     def on_connect(cls, client, userdata, flags, reason_code : ReasonCode, properties) -> None:
 
         connection_result = "succeeded" if not reason_code.is_failure else "failed"
-        print(f"[EXECUTOR]: Connection to broker {connection_result} with reason code {reason_code}.")
+        print(f"[EXECUTOR]: Connection to MQTT broker {connection_result}. Reason code: {int(reason_code)} - {reason_code}.")
 
         if connection_result == "succeeded":
 
             # Subscribe on connection succeeded
             # Handles reconnection scenarios
-            print(f"[EXECUTOR]: Subscribing to \"{cls.THERAPIES_TOPICS}\"...")
+            print(f"[EXECUTOR]: Subscribing to {cls.THERAPIES_TOPICS}...")
 
             cls.CLIENT.subscribe(
                 topic = cls.THERAPIES_TOPICS,
@@ -75,24 +75,31 @@ class MQTT_Handler:
             )
 
     @classmethod
-    def publish_actuators_actions(cls, actions : dict, patientID : int) -> None:
+    def publish_actuators_actions(cls, actions : dict, patient_id : int) -> None:
+        
+        # Build patient actuators base topic
+        patient_actuators_topic = f"{cls.ACTUATORS_TOPIC}/{patient_id}"
+        print(f"[EXECUTOR]: Publishing actions...")
 
+        # Loop over actuators
         # Send publish messages
-        publish_messages : tuple[str, mqtt.MQTTMessageInfo] = [
-            cls.CLIENT.publish(topic = f'{cls.ACTUATORS_TOPIC}/{patientID}/{actuator}', payload = actions[actuator])
+        # Store messages with topic
+        messages : list[tuple[str, mqtt.MQTTMessageInfo]] = [
+            (
+                f"{patient_actuators_topic}/{actuator}",
+                cls.CLIENT.publish(f"{patient_actuators_topic}/{actuator}", actions[actuator])
+            )
             for actuator in actions.keys()
         ]
-        
-        # Wait for all messages to return (either with success or failure)
-        for topic, message in publish_messages:
-            message.wait_for_publish()
 
-            # Print results
-            publish_result = "succeeded" if message.is_published() else "failed"
-            print(f"[EXECUTOR]: Actuator action publish at {topic} {publish_result} with reason code {message}")
+        # Wait for messages to return
+        for topic, message in messages:
+            message.wait_for_publish(timeout=60)
 
+            # Log results
+            result = "succeeded" if message.is_published else "failed"
+            print(f"[EXECUTOR]: Action publish to {topic} {result}. Reason code: {message.rc}.")
 
-    
     #
     # Monitoring callbacks
     #
@@ -109,27 +116,18 @@ class MQTT_Handler:
         for topic, reason_code in zip(topics, reason_code_list):
 
             subscription_result = "succeeded" if not reason_code.is_failure else "failed"
-            # print(f"[EXECUTOR]: Subscription to \"{topic}\" {subscription_result} with reason code {reason_code}.")
+            print(f"[EXECUTOR]: Subscription to {topic} {subscription_result}. Reason code: {int(reason_code)} - {reason_code}.")
 
             if subscription_result == "succeeded":
                 
                 # Increase subscription_successes
                 subscription_successes += 1
 
-                # Print topic QoS
-                # print(f"[EXECUTOR]: Broker granted QoS level {reason_code.value}.")
-
         print(f"[EXECUTOR]: {len(reason_code_list)} therapies topics found. Successfully subscribed to {subscription_successes}.")
-        
-
-    # QoS = 2 => Called on broker PUBCOMP
-    @staticmethod
-    def on_publish(client, userdata, mid, reason_code : ReasonCode, properties) -> None:
-
-        publish_result = "succeeded" if not reason_code.is_failure else "failed"
-        print(f"[EXECUTOR]: Actuator action publish at {topic} {publish_result} with reason code {reason_code}.")
-        
 
     @staticmethod
-    def on_disconnect() -> None:
-        print("Disconnect")
+    def on_disconnect(client, userdata, disconnect_flags, reason_code : ReasonCode, properties) -> None:
+
+        if not reason_code == "Normal disconnection":
+            print(f"[EXECUTOR]: Unexpected disconnection. Reason code: {int(reason_code)} - {reason_code}")
+        
