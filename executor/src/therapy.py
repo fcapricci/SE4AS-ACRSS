@@ -1,6 +1,6 @@
 class Therapy:
 
-    def __init__(self, patient_id : int, oxygen: float, fluids : str | None, beta_blocking : float, alert : bool):
+    def __init__(self, patient_id : int, oxygen: float, fluids : str | None, beta_blocking : float, alert : str | None):
         
         self.patient_id = patient_id
         self.oxygen = oxygen
@@ -24,6 +24,6 @@ class Therapy:
     def get_beta_blocking(self) -> float:
         return self.beta_blocking
     
-    def get_alert(self) -> bool:
+    def get_alert(self) -> str | None:
         return self.alert
         

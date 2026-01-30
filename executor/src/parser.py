@@ -8,7 +8,7 @@ class Parser:
     ALERT_ACTUATOR = "alert"
 
     @classmethod
-    def define_actuators_actions(cls, therapy : Therapy) -> dict[str, str | float]:
+    def define_actuators_actions(cls, therapy : Therapy) -> dict[str, float | str | None]:
 
         # Parse actuators actions from therapy object
         print("[EXECUTOR]: Defining actuators actions based on given therapy...")
