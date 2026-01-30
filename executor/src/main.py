@@ -10,6 +10,8 @@ MQTT_Handler.initialize_client()
 
 # Define message-handling callback
 def on_message(client, userdata, message : MQTTMessage) -> None:
+
+    print(f"[EXECUTOR]: Received message on topic \"{message.topic}\".") 
     
     # Build therapy object
 
