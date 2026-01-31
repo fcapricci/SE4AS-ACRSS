@@ -1,6 +1,38 @@
-version: '3.9'
+version: "3.9"
 
 services:
+
+  #
+  # Sensors
+  #
+
+  sensor_spo2:
+    build: ./sensors/spo2
+    container_name: sensor_spo2
+    depends_on:
+      - mosquitto
+
+  sensor_hr:
+    build: ./sensors/hr
+    container_name: sensor_hr
+    depends_on:
+      - mosquitto
+
+  sensor_rr:
+    build: ./sensors/rr
+    container_name: sensor_rr
+    depends_on:
+      - mosquitto
+
+  sensor_bp:
+    build: ./sensors/bp
+    container_name: sensor_bp
+    depends_on:
+      - mosquitto
+
+  #
+  # Broker
+  #
 
   mosquitto:
     image: eclipse-mosquitto:2
@@ -8,7 +40,32 @@ services:
     ports:
       - "1883:1883"
     volumes:
-      - ./docker/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - ./broker/mosquitto.conf:/mosquitto/config/mosquitto.conf
+
+  #
+  # Monitor
+  #
+
+  monitor:
+    build: ./monitor
+    container_name: monitor
+    depends_on:
+      - mosquitto
+      - influxdb
+    environment:
+      MQTT_BROKER: mosquitto
+      MQTT_PORT: 1883
+      INFLUX_URL: http://influxdb:8086
+      INFLUX_TOKEN: acrss-super-token
+      INFLUX_ORG: acrss
+      INFLUX_BUCKET: acrss
+      PATIENT_ID: 1
+      SOURCE: sim
+    restart: unless-stopped
+
+  #
+  # Knowledge
+  #
 
   influxdb:
     image: influxdb:2.7
@@ -28,55 +85,9 @@ services:
       DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: acrss-super-token
     restart: unless-stopped
 
-  grafana:
-    image: grafana/grafana:latest
-    container_name: grafana
-    ports:
-      - "3000:3000"
-    depends_on:
-      - influxdb
-
-  sensor_spo2:
-    build: ./sensors/spo2
-    container_name: sensor_spo2
-    depends_on:
-      - mosquitto
-
-  sensor_hr:
-    build: ./sensors/hr
-    container_name: sensor_hr
-    depends_on:
-      - mosquitto
-
-  sensor_rr:
-    build: ./sensors/rr
-    container_name: sensor_rr
-    depends_on:
-       - mosquitto
-
-  sensor_bp:
-    build: ./sensors/bp
-    container_name: sensor_bp
-    depends_on:
-      - mosquitto
-  
-  monitor:
-    build: ./monitor
-    container_name: monitor
-    depends_on:
-      - mosquitto
-      - influxdb
-    environment:
-      MQTT_BROKER: mosquitto
-      MQTT_PORT: 1883
-      INFLUX_URL: http://influxdb:8086
-      INFLUX_TOKEN: acrss-super-token
-      INFLUX_ORG: acrss
-      INFLUX_BUCKET: acrss
-      PATIENT_ID: p1
-      SOURCE: sim
-    restart: unless-stopped
-
+  #
+  # Analyzer
+  #
 
   analyzer:
     build: ./analyzer
@@ -92,10 +103,14 @@ services:
       INFLUX_TOKEN: acrss-super-token
       INFLUX_ORG: acrss
       INFLUX_BUCKET: acrss
-      PATIENT_ID: p1
+      PATIENT_ID: 1
       SOURCE: sim
     restart: unless-stopped
   
+  #
+  # Planner
+  #
+
   planner:
     build: ./planner
     container_name: planner
@@ -110,11 +125,40 @@ services:
       INFLUX_TOKEN: acrss-super-token
       INFLUX_ORG: acrss
       INFLUX_BUCKET: acrss
-      PATIENT_ID: p1
+      PATIENT_ID: 1
       SOURCE: sim
     restart: unless-stopped
+  
+  #
+  # Executor
+  #
+
+  executor:
+    build: ./executor
+    container_name: executor
+    depends_on:
+      - mosquitto
+    environment:
+      MQTT_HOSTNAME: mosquitto
+      MQTT_PORT: 1883
+    restart: unless-stopped
+
+  #
+  # Actuators
+  #
+
+  #
+  # Dashboard
+  #
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - influxdb
 
 volumes:
   influxdb_data:
   influxdb_config:
-
