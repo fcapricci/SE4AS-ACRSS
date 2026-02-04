@@ -59,7 +59,6 @@ services:
     container_name: monitor
     depends_on:
       - mosquitto
-      - influxdb
     environment:
       MQTT_BROKER: mosquitto
       MQTT_PORT: 1883
@@ -68,6 +67,21 @@ services:
       INFLUX_ORG: acrss
       INFLUX_BUCKET: acrss
       SOURCE: sim
+    restart: unless-stopped
+
+  #
+  # Telegraf (MQTT -> InfluxDB)
+  #
+  telegraf:
+    image: telegraf:1.30
+    container_name: telegraf
+    env_file:
+      - .env
+    depends_on:
+      - mosquitto
+      - influxdb
+    volumes:
+      - ./telegraf/telegraf.conf:/etc/telegraf/telegraf.conf:ro
     restart: unless-stopped
 
   #
