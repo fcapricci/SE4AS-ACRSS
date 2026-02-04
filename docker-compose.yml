@@ -9,24 +9,32 @@ services:
   sensor_spo2:
     build: ./sensors/spo2
     container_name: sensor_spo2
+    volumes:
+      - ./patients.json:/app/patients.json
     depends_on:
       - mosquitto
 
   sensor_hr:
     build: ./sensors/hr
     container_name: sensor_hr
+    volumes:
+      - ./patients.json:/app/patients.json
     depends_on:
       - mosquitto
 
   sensor_rr:
     build: ./sensors/rr
     container_name: sensor_rr
+    volumes:
+      - ./patients.json:/app/patients.json
     depends_on:
       - mosquitto
 
   sensor_bp:
     build: ./sensors/bp
     container_name: sensor_bp
+    volumes:
+      - ./patients.json:/app/patients.json
     depends_on:
       - mosquitto
 
@@ -59,7 +67,6 @@ services:
       INFLUX_TOKEN: ${INFLUX_TOKEN}
       INFLUX_ORG: acrss
       INFLUX_BUCKET: acrss
-      PATIENT_ID: 1
       SOURCE: sim
     restart: unless-stopped
 

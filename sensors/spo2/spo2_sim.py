@@ -1,51 +1,48 @@
-import time
-import json
-import random
+import time, json, random
 import paho.mqtt.client as mqtt
+from pathlib import Path
 
 BROKER = "mosquitto"
-TOPIC = "acrss/sensors/spo2"
+PORT = 1883
+SENSOR = "spo2"
+UNIT = "%"
+
+patients = json.loads(Path("patients.json").read_text())["patients"]
 
 client = mqtt.Client()
-client.connect(BROKER, 1883, 60)
+client.connect(BROKER, PORT, 60)
 client.loop_start()
 
 def clamp(x, lo, hi):
     return max(lo, min(hi, x))
 
-# Baseline fisiologica
-BASE_SPO2 = random.uniform(96, 99)
-
-# Target dinamico e stato corrente
-target_spo2 = BASE_SPO2
-spo2 = BASE_SPO2
+state = {}
+for pid in patients:
+    base = random.uniform(96, 99)
+    state[pid] = {"base": base, "target": base, "value": base}
 
 while True:
-    # 1) Cambiamenti rari del target
-    r = random.random()
-    if r < 0.002:           # ipossia moderata/severa
-        target_spo2 = random.uniform(82, 88)
-    elif r < 0.002 + 0.004:  # ipossia lieve
-        target_spo2 = random.uniform(88, 92)
-    elif r < 0.002 + 0.004 + 0.02:  # ritorno verso normalità
-        target_spo2 = BASE_SPO2
+    now = int(time.time() * 1000)
 
-    # 2) SpO2 si muove lentamente verso il target
-    spo2 += (target_spo2 - spo2) * 0.15 + random.gauss(0, 0.3)
+    for pid, s in state.items():
+        r = random.random()
+        if r < 0.002:
+            s["target"] = random.uniform(82, 88)
+        elif r < 0.006:
+            s["target"] = random.uniform(88, 92)
+        elif r < 0.02:
+            s["target"] = s["base"]
 
-    # 3) Vincoli fisiologici
-    spo2 = clamp(spo2, 75, 100)
+        s["value"] += (s["target"] - s["value"]) * 0.15 + random.gauss(0, 0.3)
+        s["value"] = clamp(s["value"], 75, 100)
 
-    meas_spo2 = int(round(spo2 + random.gauss(0, 0.5)))
+        payload = {
+            "ts": now,
+            "value": int(round(s["value"])),
+            "unit": UNIT,
+            "source": "sim"
+        }
 
-    payload = {
-        "ts": int(time.time() * 1000),
-        "spo2": meas_spo2,
-        "unit": "%",
-        "source": "sim"
-    }
-
-    client.publish(TOPIC, json.dumps(payload))
-    print(f"[SpO2] → {meas_spo2}", flush=True)
+        client.publish(f"acrss/sensors/{pid}/{SENSOR}", json.dumps(payload))
 
     time.sleep(1)
