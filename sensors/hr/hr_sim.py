@@ -1,16 +1,14 @@
-import time, json, random
+import time, json, random, os
 import paho.mqtt.client as mqtt
-from pathlib import Path
 
 BROKER = "mosquitto"
 PORT = 1883
 SENSOR = "hr"
 UNIT = "bpm"
 
-# ---- load patients ----
-patients = json.loads(Path("patients.json").read_text())["patients"]
+PATIENTS_NUMBER = int(os.environ["PATIENTS_NUMBER"])
+PATIENTS = range(1, PATIENTS_NUMBER + 1)
 
-# ---- mqtt ----
 client = mqtt.Client()
 client.connect(BROKER, PORT, 60)
 client.loop_start()
@@ -18,9 +16,8 @@ client.loop_start()
 def clamp(x, lo, hi):
     return max(lo, min(hi, x))
 
-# ---- per-patient state ----
 state = {}
-for pid in patients:
+for pid in PATIENTS:
     base = random.uniform(65, 85)
     state[pid] = {
         "base": base,
@@ -34,9 +31,9 @@ while True:
     for pid, s in state.items():
         r = random.random()
         if r < 0.002:
-            s["target"] = random.uniform(105, 130)  # tachy
+            s["target"] = random.uniform(105, 130)
         elif r < 0.003:
-            s["target"] = random.uniform(45, 55)    # brady
+            s["target"] = random.uniform(45, 55)
         elif r < 0.015:
             s["target"] = s["base"]
 
