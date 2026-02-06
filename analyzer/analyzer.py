@@ -5,7 +5,7 @@ from datetime import datetime
 from collections import deque
 import pandas as pd
 import numpy as np
-PATIENT_ID = os.getenv("PATIENT_ID", "p1")
+
 SLOPE_THRESHOLDS_5MIN = {
     "hr":   [-75, -25,  25,  75],   # bpm / 5 min
     "sbp":  [-50, -15,  15,  50],   # mmHg / 5 min

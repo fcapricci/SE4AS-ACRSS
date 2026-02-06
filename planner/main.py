@@ -7,7 +7,7 @@ import copy
 from datetime import datetime
 import os
 PATIENT_ID = os.getenv("PATIENT_ID", "p1")
-PUBLISH_TOPIC = f"acrss/plan/{PATIENT_ID}"
+
 def has_therapy_changed(old_therapy, therapy):
     if old_therapy is None or therapy is None:
         return True
@@ -45,7 +45,8 @@ def planner_loop(planner):
                 
                 therapy = planner.get_serializable_therapy()
                 therapy['timestamp'] = datetime.now().isoformat()
-                MQTT_Handler.publish(PUBLISH_TOPIC,therapy)
+                MQTT_Handler.publish(therapy)
+
                 
             
         old_therapy = copy.deepcopy(planner.therapy)
