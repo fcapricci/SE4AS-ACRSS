@@ -1,101 +1,105 @@
-from os import getenv
 import json
+import threading
+from collections import defaultdict
+import pandas as pd
 import paho.mqtt.client as mqtt
-from paho.mqtt.reasoncodes import ReasonCode
-import os
-
-MQTT_BROKER = os.getenv("MQTT_BROKER", "mosquitto")
-MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
-
-SOURCE = "sim"
-PATIENT_ID = os.getenv("PATIENT_ID", "p1")
-ANAYZER_TOPIC = f"acrss/analyzer/{PATIENT_ID}/status" # write 
-PLANNER_TOPIC = "acrss/plan/{PATIENT_ID}" #read
-INFLUX_URL = os.getenv("INFLUX_URL", "http://influxdb:8086")
-INFLUX_TOKEN = os.getenv("INFLUX_TOKEN", "acrss-super-token")
-INFLUX_ORG = os.getenv("INFLUX_ORG", "acrss")
-INFLUX_BUCKET = os.getenv("INFLUX_BUCKET", "acrss")
-
-class MQTT_Handler:
 
 
+class MQTTHandler:
+    def __init__(self, broker, port=1883):
+        self.broker = broker
+        self.port = port
 
-    CLIENT = None
+        # buffer: patient_id -> latest values
+        self.patient_data = defaultdict(dict)
+        self.lock = threading.Lock()
 
-    @classmethod
-    def initialize_client(cls) -> None:
+        self.client = mqtt.Client()
+        self.client.on_connect = self.on_connect
+        self.client.on_message = self.on_message
 
-        client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+        self.client.connect(self.broker, self.port, 60)
 
-        ## Callbacks
-        client.on_connect = cls.on_connect
-        client.on_subscribe = cls.on_subscribe
-        client.on_message = cls.on_message
-        client.on_disconnect = cls.on_disconnect
+    # ---------------- MQTT CALLBACKS ---------------- #
 
-        # Set instance
-        cls.CLIENT = client
-        cls.received_message = None
+    def on_connect(self, client, userdata, flags, rc):
+        print("MQTT connected with result code", rc)
+        client.subscribe("acrss/states/+/+")
 
-    @classmethod
-    def connect_to_mqtt(cls) -> None:
+    def on_message(self, client, userdata, msg):
+        try:
+            topic_parts = msg.topic.split("/")
+            patient_id = topic_parts[2]
+            sensor_type = topic_parts[3]
 
-        # Connect client to broker
-        cls.CLIENT.connect(
-            MQTT_BROKER,
-            MQTT_PORT,
-            60
-        )
+            payload = json.loads(msg.payload.decode())
 
-        # Start network loop
-        cls.CLIENT.loop_start()
+            with self.lock:
+                ts = payload.get("ts")
 
-    @classmethod
-    def on_connect(cls, client, userdata, flags, reason_code : ReasonCode, properties) -> None:
+                if sensor_type == "bp":
+                    sbp = payload["value"].get("sbp")
+                    dbp = payload["value"].get("dbp")
 
-        connection_result = "succeeded" if not reason_code.is_failure else "failed"
-        print(f'Connection to broker {connection_result} with reason code {reason_code}.')
+                    if sbp is not None and dbp is not None:
+                        self.patient_data[patient_id]["sbp"] = sbp
+                        self.patient_data[patient_id]["dbp"] = dbp
+                        self.patient_data[patient_id]["map"] = (
+                            sbp + 2 * dbp
+                        ) / 3
 
-        if connection_result == "succeeded":
-            cls.CLIENT.subscribe(PLANNER_TOPIC, qos=2)
+                else:
+                    self.patient_data[patient_id][sensor_type] = payload.get(
+                        "value"
+                    )
 
+                self.patient_data[patient_id]["time"] = ts
+
+        except Exception as e:
+            print("MQTT parse error:", e)
+
+    # ---------------- PUBLIC API ---------------- #
+
+    def start(self):
+        self.client.loop_start()
+
+    def stop(self):
+        self.client.loop_stop()
+        self.client.disconnect()
     
-    @classmethod
-    def on_message(cls, client, userdata, message : mqtt.MQTTMessage) -> None:
-        data = json.loads(message.payload.decode())
-        print(data)
-        cls.received_message = data
+    def publish(self, topic: str, payload: dict):
+        """
+        Publish JSON payload to MQTT.
+        """
+        try:
+            self.client.publish(
+                topic,
+                json.dumps(payload)
+            )
+        except Exception as e:
+            print("MQTT publish error:", e)
 
-    @classmethod
-    def get_received_message(cls):
-        #print("da dentro get_received_message: ", cls.received_message )
-        return cls.received_message 
-    
-    @classmethod
-    def publish(cls,topic,obj):
-        cls.CLIENT.publish(ANAYZER_TOPIC,payload=json.dumps(obj),qos=1)
-    @staticmethod
-    def on_subscribe(client, userdata, mid, reason_code_list : list[ReasonCode], properties) -> None:
-        
-        print(f"{len(reason_code_list)} topics found.")
 
-        for reason_code in reason_code_list:
-            print(reason_code)
-           
+    def get_patient_dataframe(self, patient_id):
+        """
+        Returns a pandas DataFrame with the exact format
+        expected by the Analyzer.
+        """
+        with self.lock:
+            data = self.patient_data.get(patient_id)
 
-    # QoS = 2 => Called on broker PUBCOMP
-    @staticmethod
-    def on_publish() -> None:
-        print("Publish")
-        return NotImplemented
+            if not data:
+                return None
 
-    @staticmethod
-    def on_disconnect(client, userdata, reason_code, properties) -> None:
-        print("Disconnected from mqtt")
-    @classmethod
-    def cleanup(cls):
-        """Pulizia risorse"""
-        if cls.CLIENT:
-            cls.CLIENT.loop_stop()
-            cls.CLIENT.disconnect()
+            df = pd.DataFrame([{
+                "time": data.get("time"),
+                "hr": data.get("hr"),
+                "rr": data.get("rr"),
+                "spo2": data.get("spo2"),
+                "sbp": data.get("sbp"),
+                "dbp": data.get("dbp"),
+                "map": data.get("map"),
+            }])
 
+        df["time"] = pd.to_datetime(df["time"], unit="ms")
+        return df
