@@ -51,7 +51,7 @@ class MQTTHandler:
         client.on_message = on_message_callback
 
     @classmethod
-    def connect(cls, client : mqtt.Client) -> None:
+    def connect(cls, client : mqtt.Client, blocking : bool) -> None:
 
         # Connect client with broker
         print(f"[{client._client_id.upper()}]: Connecting to MQTT broker...")
@@ -60,8 +60,16 @@ class MQTTHandler:
             cls.MQTT_PORT
         )
 
-        # Start network loop on main thread
-        client.loop_start()
+        # Start network loop 
+        if not blocking:
+
+            ## On background thread
+            client.loop_start()
+
+        else:
+
+            ## On main thread
+            client.loop_forever()
 
     @staticmethod
     def on_connect(client : mqtt.Client, userdata : dict[str, Any], flags, reason_code : ReasonCode, properties) -> None:
