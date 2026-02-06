@@ -72,6 +72,7 @@ services:
   #
   # Telegraf (MQTT -> InfluxDB)
   #
+
   telegraf:
     image: telegraf:1.30
     container_name: telegraf
@@ -167,6 +168,22 @@ services:
   #
   # Actuators
   #
+
+  actuators:
+    build: ./actuators
+    container_name: actuators
+    depends_on:
+      - mosquitto
+    environment:
+      PATIENTS_NUMBER: ${PATIENTS_NUMBER}
+      MQTT_HOSTNAME: ${MQTT_HOSTNAME}
+      MQTT_PORT: ${MQTT_PORT}
+      OXYGEN_ACTUATOR_NAME: ${OXYGEN_ACTUATOR_NAME}
+      OXYGEN_FLOW_RATE_UNIT: ${OXYGEN_FLOW_RATE_UNIT}
+      FLUIDS_ACTUATOR_NAME: ${FLUIDS_ACTUATOR_NAME}
+      BETA_BLOCKING_ACTUATOR_NAME: ${BETA_BLOCKING_ACTUATOR_NAME}
+      BETA_BLOCKING_FLOW_RATE_UNIT: ${BETA_BLOCKING_FLOW_RATE_UNIT}
+      ALERT_ACTUATOR_NAME: ${ALERT_ACTUATOR_NAME}
 
   #
   # Dashboard
