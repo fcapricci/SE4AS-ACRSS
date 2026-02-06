@@ -3,12 +3,13 @@ import json
 import paho.mqtt.client as mqtt
 from paho.mqtt.reasoncodes import ReasonCode
 import os
+from planner_manager import PlannerManager
+
 MQTT_BROKER = os.getenv("MQTT_BROKER", "mosquitto")
 MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
 
 SOURCE = "sim"
-PATIENT_ID = os.getenv("PATIENT_ID", "p1")
-ANAYZER_TOPICS = f"acrss/analyzer/{PATIENT_ID}/status" # read 
+SYMPTOMS_TOPIC = "acrss/symptoms/+"
 PLANNER_TOPIC = "acrss/plan/{PATIENT_ID}" #write
 INFLUX_URL = os.getenv("INFLUX_URL", "http://influxdb:8086")
 INFLUX_TOKEN = os.getenv("INFLUX_TOKEN", "acrss-super-token")
@@ -55,28 +56,36 @@ class MQTT_Handler:
         # Start network loop
         cls.CLIENT.loop_start()
 
-    @classmethod
-    def on_connect(cls, client, userdata, flags, reason_code : ReasonCode, properties) -> None:
+    @staticmethod
+    def on_connect(client, userdata, flags, reason_code: ReasonCode, properties) -> None:
+        if not reason_code.is_failure:
+            print("[PLANNER] Connected to MQTT broker")
+            client.subscribe(SYMPTOMS_TOPIC, qos=1)
 
-        connection_result = "succeeded" if not reason_code.is_failure else "failed"
-        print(f'[EXECUTOR]: Connection to broker {connection_result} with reason code {reason_code}.')
 
-        if connection_result == "succeeded":
-            cls.CLIENT.subscribe(ANAYZER_TOPICS, qos=2)
     
-    @classmethod
-    def on_message(cls, client, userdata, message : mqtt.MQTTMessage) -> None:
-        data = json.loads(message.payload.decode())
-        print(data)
-        cls.received_message = data
+    @staticmethod
+    def on_message(client, userdata, message):
+        topic = message.topic
+        payload = json.loads(message.payload.decode())
+
+        # acrss/symptoms/{patient_id}
+        patient_id = topic.split("/")[-1]
+
+        therapy = PlannerManager.process_symptoms(patient_id, payload)
+
+        topic_out = f"acrss/therapies/{patient_id}"
+        client.publish(topic_out, json.dumps(therapy), qos=1)
+
+        print(f"[PLANNER] Therapy published for patient {patient_id}")
+
 
     @classmethod
     def get_received_message(cls):
         return cls.received_message 
     
-    @classmethod
-    def publish(cls,topic,obj):
-        cls.CLIENT.publish(topic,payload=json.dumps(obj),qos=1)
+    
+
     @staticmethod
     def on_subscribe(client, userdata, mid, reason_code_list : list[ReasonCode], properties) -> None:
         
