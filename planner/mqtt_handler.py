@@ -12,7 +12,7 @@ SOURCE = "sim"
 SYMPTOMS_TOPIC = "acrss/symptoms/+"
 PLANNER_TOPIC = "acrss/plan/{PATIENT_ID}" #write
 INFLUX_URL = os.getenv("INFLUX_URL", "http://influxdb:8086")
-INFLUX_TOKEN = os.getenv("INFLUX_TOKEN", "acrss-super-token")
+INFLUX_TOKEN = os.getenv("INFLUX_TOKEN")
 INFLUX_ORG = os.getenv("INFLUX_ORG", "acrss")
 INFLUX_BUCKET = os.getenv("INFLUX_BUCKET", "acrss")
 

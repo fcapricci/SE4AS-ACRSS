@@ -4,7 +4,7 @@ from influxdb_client.client.write_api import SYNCHRONOUS
 import os
 
 INFLUX_URL = os.getenv("INFLUX_URL", "http://influxdb:8086")
-INFLUX_TOKEN = os.getenv("INFLUX_TOKEN", "acrss-super-token")
+INFLUX_TOKEN = os.getenv("INFLUX_TOKEN")
 INFLUX_ORG = os.getenv("INFLUX_ORG", "acrss")
 INFLUX_BUCKET = os.getenv("INFLUX_BUCKET", "acrss")
 
@@ -70,9 +70,6 @@ def read_data(
 
         df = pd.DataFrame(records)
 
-        # ----------------------------
-        # NORMAL SENSORS
-        # ----------------------------
         base = df[df["field"] == "value"].pivot_table(
             index="time",
             columns="sensor",
@@ -80,9 +77,6 @@ def read_data(
             aggfunc="last"
         )
 
-        # ----------------------------
-        # BLOOD PRESSURE
-        # ----------------------------
         sbp = df[df["field"] == "value_sbp"].pivot_table(
             index="time",
             values="value",
@@ -102,30 +96,19 @@ def read_data(
         else:
             data["map"] = None
 
-        # ----------------------------
-        # GARANTISCI METRICHE
-        # ----------------------------
         for m in METRICS:
             if m not in data.columns:
                 data[m] = None
 
         data = data.sort_values("time").reset_index(drop=True)
 
-        # ==================================================
-        # 🔴 ADAPTER PER ANALYZER (PUNTO CHIAVE)
-        # ==================================================
-        # L'Analyzer si aspetta time_hr, time_rr, ...
-        # NON modifichiamo l'analyzer → adattiamo qui
         for m in METRICS:
             data[f"time_{m}"] = data["time"]
 
-        # ==================================================
-        # ADAPTER PER ANALYZER (CRITICO)
-        # ==================================================
         for m in METRICS:
             data[f"time_{m}"] = data["time"]
 
-        # 🔴 L'Analyzer NON deve vedere 'time'
+        
         data = data.drop(columns=["time"])
 
 

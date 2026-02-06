@@ -42,18 +42,3 @@ class PlannerManager:
 
         return therapy
 
-    @classmethod
-    def remove_planner(cls, patient_id: str) -> None:
-        """
-        Rimuove il planner di un paziente (es. dimissione).
-        """
-        if patient_id in cls._planners:
-            print(f"[PLANNER_MANAGER] Removing planner for patient {patient_id}")
-            del cls._planners[patient_id]
-
-    @classmethod
-    def active_patients(cls) -> list[str]:
-        """
-        Ritorna la lista dei pazienti attualmente gestiti.
-        """
-        return list(cls._planners.keys())
