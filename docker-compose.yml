@@ -201,6 +201,24 @@ services:
     depends_on:
       - influxdb
 
+  #
+  # Node-red
+  #
+  node-red:
+    build:
+      context: ./nodered
+      dockerfile: Dockerfile
+    container_name: node-red
+    ports:
+      - "1880:1880"
+    # environment:
+    #   - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
+    #   - TELEGRAM_CHATID=${TELEGRAM_CHATID}
+    #   - INFLUX_TOKEN=${INFLUX_TOKEN}
+    volumes:
+      - ./nodered/data:/data
+
+
 volumes:
   influxdb_data:
   influxdb_config:
