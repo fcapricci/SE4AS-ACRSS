@@ -1,0 +1,160 @@
+[
+    {
+        "id": "0c026383a673c2cc",
+        "type": "tab",
+        "label": "Flow 1",
+        "disabled": false,
+        "info": "",
+        "env": []
+    },
+    {
+        "id": "c41a994ac3dba23e",
+        "type": "mqtt-broker",
+        "name": "",
+        "broker": "mosquitto",
+        "port": 1883,
+        "clientid": "",
+        "autoConnect": true,
+        "usetls": false,
+        "protocolVersion": 4,
+        "keepalive": 60,
+        "cleansession": true,
+        "autoUnsubscribe": true,
+        "birthTopic": "",
+        "birthQos": "0",
+        "birthRetain": "false",
+        "birthPayload": "",
+        "birthMsg": {},
+        "closeTopic": "",
+        "closeQos": "0",
+        "closeRetain": "false",
+        "closePayload": "",
+        "closeMsg": {},
+        "willTopic": "",
+        "willQos": "0",
+        "willRetain": "false",
+        "willPayload": "",
+        "willMsg": {},
+        "userProps": "",
+        "sessionExpiry": ""
+    },
+    {
+        "id": "9eecafe13f252fd1",
+        "type": "telegram bot",
+        "botname": "AlertBot",
+        "usernames": "",
+        "chatids": "${TELEGRAM_CHATID}",
+        "baseapiurl": "",
+        "testenvironment": false,
+        "updatemode": "polling",
+        "pollinterval": 300,
+        "usesocks": false,
+        "sockshost": "",
+        "socksprotocol": "socks5",
+        "socksport": 6667,
+        "socksusername": "anonymous",
+        "sockspassword": "",
+        "bothost": "",
+        "botpath": "",
+        "localbothost": "0.0.0.0",
+        "localbotport": 8443,
+        "publicbotport": 8443,
+        "privatekey": "",
+        "certificate": "",
+        "useselfsignedcertificate": false,
+        "sslterminated": false,
+        "verboselogging": false
+    },
+    {
+        "id": "71700f60c49c5db5",
+        "type": "mqtt in",
+        "z": "0c026383a673c2cc",
+        "name": "",
+        "topic": "acrss/therapies/+",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "c41a994ac3dba23e",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 320,
+        "y": 140,
+        "wires": [
+            [
+                "50852ccdc015b40e"
+            ]
+        ]
+    },
+    {
+        "id": "50852ccdc015b40e",
+        "type": "function",
+        "z": "0c026383a673c2cc",
+        "name": "parser",
+        "func": "const patientId = msg.topic.split(\"/\").pop();\nconst alerts = msg.payload.alert;\nconst CHAT_ID = -5200673556; // Inserisci qui il tuo Chat ID (es. 12345678)\n\nlet messaggio = \"\";\n\nif (Array.isArray(alerts) && alerts.length > 0) {\n    messaggio = `🚨 ALERT PAZIENTE ${patientId}\\nRilevato: ${alerts.join(\", \")}`;\n} else {\n    // Se non vuoi messaggi quando tutto è ok, metti \"return null\"\n    // Se vuoi la conferma di rientro, usa la riga sotto:\n    messaggio = `✅ Paziente ${patientId}: parametri rientrati.`;\n}\n\n// Prepariamo l'oggetto per il nodo Telegram\nmsg.payload = {\n    chatId: CHAT_ID,\n    type: \"message\",\n    content: messaggio\n};\n\nreturn msg;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 510,
+        "y": 140,
+        "wires": [
+            [
+                "451f337c6c9de5e6",
+                "3d0006d4e1aa4d2a"
+            ]
+        ]
+    },
+    {
+        "id": "3d0006d4e1aa4d2a",
+        "type": "rbe",
+        "z": "0c026383a673c2cc",
+        "name": "",
+        "func": "rbe",
+        "gap": "",
+        "start": "",
+        "inout": "out",
+        "septopics": true,
+        "property": "payload",
+        "topi": "topic",
+        "x": 850,
+        "y": 140,
+        "wires": [
+            [
+                "1afd8de86acdc166"
+            ]
+        ]
+    },
+    {
+        "id": "1afd8de86acdc166",
+        "type": "telegram sender",
+        "z": "0c026383a673c2cc",
+        "name": "",
+        "bot": "9eecafe13f252fd1",
+        "haserroroutput": false,
+        "outputs": 1,
+        "x": 1050,
+        "y": 140,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "451f337c6c9de5e6",
+        "type": "debug",
+        "z": "0c026383a673c2cc",
+        "name": "debug 1",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 700,
+        "y": 220,
+        "wires": []
+    }
+]
