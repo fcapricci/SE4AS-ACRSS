@@ -1,17 +1,30 @@
-from mqtt_handler import MQTT_Handler
-from parser import Parser
+from os import getenv
+from typing import Any
 import json
 
-from paho.mqtt.client import MQTTMessage
+from handlers.mqtt_handler import MQTTHandler
+from parser import Parser
+
+from paho.mqtt.client import Client, MQTTMessage
 from therapy import Therapy
 
-# Initialize and setup MQTT client
-MQTT_Handler.initialize_client()
+MQTT_USERNAME = getenv("EXECUTOR_MQTT_USERNAME")
+MQTT_PASSWORD = None
+
+THERAPIES_TOPICS_PREFIX = getenv("THERAPIES_TOPICS_PREFIX")
+ACTIONS_TOPICS_PREFIX = getenv("ACTIONS_TOPIC_PREFIX")
+
+# Initialize MQTT client
+mqtt_client : Client = MQTTHandler.get_client(
+    username = MQTT_USERNAME,
+    password = MQTT_PASSWORD,
+    subscribe_topics = f"{THERAPIES_TOPICS_PREFIX}/+"
+)
 
 # Define message-handling callback
-def on_message(client, userdata, message : MQTTMessage) -> None:
+def on_message(client : Client, userdata : dict[str, Any], message : MQTTMessage) -> None:
 
-    print(f"[EXECUTOR]: Received therapy at {message.topic}.") 
+    print(f"[{client.username.upper()}]: Received therapy at {message.topic}.") 
     
     # Build therapy object
 
@@ -30,16 +43,26 @@ def on_message(client, userdata, message : MQTTMessage) -> None:
     )
 
     # Define actuators actions given the therapy
-    actions : dict = Parser.define_actuators_actions(therapy)
+    print(f"[{client.username.upper()}]: Defining actuators actions based on given therapy...")
+    actions : dict[str, Any] = Parser.define_actuators_actions(therapy)
 
     # Notify actuators with their actions
-    MQTT_Handler.publish_actuators_actions(
-        actions, 
-        therapy.get_patient_id()
+
+    ## Build messages: (topic, payload)
+    messages = [
+        (f"{ACTIONS_TOPICS_PREFIX}/{patient_id}/{actuator}", actions[actuator])
+        for actuator in actions.keys()
+    ]
+
+    ## Publish
+    print(f"[{client.username.upper()}]: Publishing actuators actions...")
+    MQTTHandler.publish(
+        client = client,
+        messages = messages
     )
 
 # Set callback
-MQTT_Handler.set_on_message(on_message)
+MQTTHandler.set_on_message(mqtt_client, on_message)
 
 # Start catching messages
-MQTT_Handler.get_therapies()
+MQTTHandler.connect(mqtt_client, blocking = True)
