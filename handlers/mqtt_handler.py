@@ -14,7 +14,7 @@ class MQTTHandler:
     MQTT_PORT = int(getenv("MQTT_PORT"))
 
     @classmethod
-    def get_client(cls, username : str, password : str, subscribe_topics : str | list[str]) -> mqtt.Client:
+    def get_client(cls, username : str, password : str, subscribe_topics : str | list[str] | None) -> mqtt.Client:
 
         # Initialize instance
         print(f"[{username.upper()}]: Initializing MQTT client...")
@@ -84,7 +84,7 @@ class MQTTHandler:
         print(f"[{client.username.upper()}]: Connection to MQTT broker {connection_result}. Reason code: {reason_code}.")
 
         # Subscribe on connection succeeded to handle reconnection scenarios
-        if connection_result == "succeeded":
+        if connection_result == "succeeded" and not userdata["subscribe_topics"] is None:
 
             topics = userdata["subscribe_topics"]
 
