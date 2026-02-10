@@ -84,7 +84,7 @@ class MQTTHandler:
         print(f"[{client.username.upper()}]: Connection to MQTT broker {connection_result}. Reason code: {reason_code}.")
 
         # Subscribe on connection succeeded to handle reconnection scenarios
-        if connection_result == "succeeded" and not userdata["subscribe_topics"] is None:
+        if connection_result == "succeeded" and userdata["subscribe_topics"] is not None:
 
             topics = userdata["subscribe_topics"]
 
