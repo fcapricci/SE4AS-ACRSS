@@ -70,7 +70,7 @@ services:
     restart: unless-stopped
 
   #
-  # Telegraf (MQTT -> InfluxDB)
+  # Telegraf
   #
 
   telegraf:
@@ -162,7 +162,7 @@ services:
   executor:
     build:
       context: .
-      dockerfile: ./executor/Dockerfile
+      dockerfile: executor/Dockerfile
     container_name: executor
     depends_on:
       - mosquitto
@@ -172,13 +172,40 @@ services:
       MQTT_HOSTNAME: ${MQTT_HOSTNAME}
       MQTT_PORT: ${MQTT_PORT}
       EXECUTOR_MQTT_USERNAME: ${EXECUTOR_MQTT_USERNAME}
-
       THERAPIES_TOPICS_PREFIX: ${THERAPIES_TOPICS_PREFIX}
       ACTIONS_TOPICS_PREFIX: ${ACTIONS_TOPICS_PREFIX}
-
+      
       OXYGEN_ACTUATOR_NAME: ${OXYGEN_ACTUATOR_NAME}
       FLUIDS_ACTUATOR_NAME: ${FLUIDS_ACTUATOR_NAME}
       BETA_BLOCKING_ACTUATOR_NAME: ${BETA_BLOCKING_ACTUATOR_NAME}
+      ALERT_ACTUATOR_NAME: ${ALERT_ACTUATOR_NAME}
+    restart: unless-stopped
+
+  #
+  # Actuators
+  #
+
+  actuators:
+    build:
+      context: .
+      dockerfile: actuators/Dockerfile
+    container_name: actuators
+    depends_on:
+      - mosquitto
+    environment:
+      PYTHONUNBUFFERED: ${PYTHONUNBUFFERED}
+
+      PATIENTS_NUMBER: ${PATIENTS_NUMBER}
+
+      MQTT_HOSTNAME: ${MQTT_HOSTNAME}
+      MQTT_PORT: ${MQTT_PORT}
+      ACTIONS_TOPICS_PREFIX: ${ACTIONS_TOPICS_PREFIX}
+
+      OXYGEN_ACTUATOR_NAME: ${OXYGEN_ACTUATOR_NAME}
+      OXYGEN_FLOW_RATE_UNIT: ${OXYGEN_FLOW_RATE_UNIT}
+      FLUIDS_ACTUATOR_NAME: ${FLUIDS_ACTUATOR_NAME}
+      BETA_BLOCKING_ACTUATOR_NAME: ${BETA_BLOCKING_ACTUATOR_NAME}
+      BETA_BLOCKING_FLOW_RATE_UNIT: ${BETA_BLOCKING_FLOW_RATE_UNIT}
       ALERT_ACTUATOR_NAME: ${ALERT_ACTUATOR_NAME}
 
   #
