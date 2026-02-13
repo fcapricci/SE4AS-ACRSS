@@ -3,6 +3,7 @@ import json
 import time
 from datetime import datetime
 from collections import deque
+from config_loader import CLINICAL_RULES
 import pandas as pd
 import numpy as np
 
@@ -136,64 +137,116 @@ class Analyzer:
         self.update_adaptive_baseline(metric, x_t, is_outlier)
         
         return alpha_t
-    def generate_status(self,average_data,therapy:dict):
+    
+    def generate_status(self, average_data, therapy: dict):
+
         status = {}
-        # oxygen check
-        #print("therapy dentro generate status ", therapy)
-        if (average_data["spo2"] >= 92).all() and ((average_data["rr"] >=12).all() and (average_data["rr"] <= 24).all()):
-            status["oxigenation"]="STABLE_RESPIRATION"
-        elif (average_data["spo2"] < 92).all() and (average_data["spo2"] >= 88).all():
-            status["oxigenation"]="LIGHT_HYPOXIA"
-        elif (average_data["spo2"] < 88).all(): 
-            if therapy["ox_therapy"] >= 6:
+
+        # =========================
+        # LOAD THRESHOLDS
+        # =========================
+
+        spo2_stable = CLINICAL_RULES.getfloat("oxygen", "stable_spo2")
+        spo2_light = CLINICAL_RULES.getfloat("oxygen", "light_hypoxia_min")
+        oxygen_fail = CLINICAL_RULES.getfloat("oxygen", "oxygen_failure_threshold")
+
+        rr_min = CLINICAL_RULES.getfloat("respiration", "rr_min")
+        rr_max = CLINICAL_RULES.getfloat("respiration", "rr_max")
+        rr_tachy = CLINICAL_RULES.getfloat("respiration", "tachy_min")
+        rr_distress = CLINICAL_RULES.getfloat("respiration", "distress_min")
+
+        hr_min = CLINICAL_RULES.getfloat("heart_rate", "hr_min")
+        hr_max = CLINICAL_RULES.getfloat("heart_rate", "hr_max")
+        hr_tachy = CLINICAL_RULES.getfloat("heart_rate", "tachy_min")
+        hr_primary = CLINICAL_RULES.getfloat("heart_rate", "primary_min")
+
+        map_shock = CLINICAL_RULES.getfloat("pressure", "map_shock")
+        map_hypo = CLINICAL_RULES.getfloat("pressure", "map_hypo")
+        sbp_shock = CLINICAL_RULES.getfloat("pressure", "sbp_shock")
+
+        # =========================
+        # OXYGENATION
+        # =========================
+
+        if (average_data["spo2"] >= spo2_stable).all() and \
+        ((average_data["rr"] >= rr_min).all() and (average_data["rr"] <= rr_max).all()):
+            status["oxigenation"] = "STABLE_RESPIRATION"
+
+        elif (average_data["spo2"] < spo2_stable).all() and \
+            (average_data["spo2"] >= spo2_light).all():
+            status["oxigenation"] = "LIGHT_HYPOXIA"
+
+        elif (average_data["spo2"] < spo2_light).all():
+            if therapy.get("ox_therapy", 0) >= oxygen_fail:
                 status["oxigenation"] = "FAILURE_OXYGEN_THERAPY"
-            else: 
-                status["oxigenation"] = "GRAVE_HYPOXIA"
-        else:
-            status["oxigenation"]="STABLE_SATURATION"
-
-        
-        # respiration check
-        if  (average_data["rr"] >= 24).all() and (average_data["rr"] <= 30).all():
-            status["respiration"]="MODERATE_TACHYPNEA"
-        elif (average_data["rr"] > 30).all():
-            status["respiration"]="RESPIRATORY_DISTRESS"
-        elif (average_data["rr"] < 12).all():
-            status["respiration"]="BRADYPNEA"
-        else:
-            status['respiration'] = "STABLE_RESPIRATION_EFFORT"
-        
-
-        # tachycardia check
-       
-        if (average_data["hr"] >= 60).all() and (average_data["hr"] <= 120).all():
-            status["heart_rate"]="STABLE_HR"
-        if (average_data["spo2"] >= 92).all():
-            if (average_data["hr"] > 125).all() and (average_data['map'] >= 90).all():
-                status["heart_rate"]="PRIMARY_TACHYCARDIA"
-            elif ((average_data["hr"] > 120).all() and (average_data["hr"] <= 140).all()) :
-                status["heart_rate"]="COMPENSED_TACHYCARDIA"
             else:
-                status['heart_rate'] = 'HIGH_HR'
-        else:
-            status['heart_rate'] = 'HIGH_HR'
-            
-        
+                status["oxigenation"] = "GRAVE_HYPOXIA"
 
-        # blood pressure check
-        if (average_data["map"] < 65).all():
-            if (average_data["map"] < 55).all() or (average_data["sbp"] < 80).all():
-                status["blood_pressure"]="SHOCK"
-            if  (average_data["rr"] > 30).all():
-                status["blood_pressure"]="DISTRESS_OVERLOAD"
-            if  (average_data["hr"] > 120).all()   and (average_data["rr"] < 30).all() and (average_data['map'] >= 90).all():
-                status["blood_pressure"]="CIRCULARITY_UNSTABILITY"
-            if (55 <= average_data["map"]).all():
-                status["blood_pressure"]="MODERATE_HYPOTENSION"
         else:
-            status["blood_pressure"]="NORMAL_PERFUSION"
-        
+            status["oxigenation"] = "STABLE_SATURATION"
+
+        # =========================
+        # RESPIRATION
+        # =========================
+
+        if (average_data["rr"] >= rr_tachy).all() and \
+        (average_data["rr"] <= rr_distress).all():
+            status["respiration"] = "MODERATE_TACHYPNEA"
+
+        elif (average_data["rr"] > rr_distress).all():
+            status["respiration"] = "RESPIRATORY_DISTRESS"
+
+        elif (average_data["rr"] < rr_min).all():
+            status["respiration"] = "BRADYPNEA"
+
+        else:
+            status["respiration"] = "STABLE_RESPIRATION_EFFORT"
+
+        # =========================
+        # HEART RATE
+        # =========================
+
+        if (average_data["hr"] >= hr_min).all() and \
+        (average_data["hr"] <= hr_max).all():
+            status["heart_rate"] = "STABLE_HR"
+
+        elif (average_data["spo2"] >= spo2_stable).all() and \
+            (average_data["hr"] > hr_primary).all() and \
+            (average_data["map"] >= map_hypo).all():
+            status["heart_rate"] = "PRIMARY_TACHYCARDIA"
+
+        elif (average_data["spo2"] >= spo2_stable).all() and \
+            (average_data["hr"] > hr_tachy).all():
+            status["heart_rate"] = "COMPENSED_TACHYCARDIA"
+
+        else:
+            status["heart_rate"] = "HIGH_HR"
+
+        # =========================
+        # BLOOD PRESSURE
+        # =========================
+
+        if (average_data["map"] < map_hypo).all():
+
+            if (average_data["map"] < map_shock).all() or \
+            (average_data["sbp"] < sbp_shock).all():
+                status["blood_pressure"] = "SHOCK"
+
+            elif (average_data["rr"] > rr_distress).all():
+                status["blood_pressure"] = "DISTRESS_OVERLOAD"
+
+            elif (average_data["hr"] > hr_tachy).all() and \
+                (average_data["map"] >= map_hypo).all():
+                status["blood_pressure"] = "CIRCULARITY_UNSTABILITY"
+
+            else:
+                status["blood_pressure"] = "MODERATE_HYPOTENSION"
+
+        else:
+            status["blood_pressure"] = "NORMAL_PERFUSION"
+
         return status
+
     def apply_EWMA(self, alpha_t, x_t, metric):
         """Applica EWMA con alpha_t calcolato"""
         new_EWMA = alpha_t * x_t + ((1 - alpha_t) * self.EWMA[metric])
