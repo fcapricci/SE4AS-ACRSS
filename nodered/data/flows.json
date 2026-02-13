@@ -91,7 +91,7 @@
         "type": "function",
         "z": "0c026383a673c2cc",
         "name": "parser",
-        "func": "const patientId = msg.topic.split(\"/\").pop();\nconst alerts = msg.payload.alert;\nconst CHAT_ID = -5200673556; // Inserisci qui il tuo Chat ID (es. 12345678)\n\nlet messaggio = \"\";\n\nif (Array.isArray(alerts) && alerts.length > 0) {\n    messaggio = `🚨 ALERT PAZIENTE ${patientId}\\nRilevato: ${alerts.join(\", \")}`;\n} else {\n    // Se non vuoi messaggi quando tutto è ok, metti \"return null\"\n    // Se vuoi la conferma di rientro, usa la riga sotto:\n    messaggio = `✅ Paziente ${patientId}: parametri rientrati.`;\n}\n\n// Prepariamo l'oggetto per il nodo Telegram\nmsg.payload = {\n    chatId: CHAT_ID,\n    type: \"message\",\n    content: messaggio\n};\n\nreturn msg;\n",
+        "func": "const patientId = msg.topic.split(\"/\").pop();\nconst alerts = msg.payload.alert;\nconst CHAT_ID = -5200673556; \n\nlet messaggio = \"\";\n\nif (Array.isArray(alerts) && alerts.length > 0) {\n    messaggio = `🚨 ALERT PAZIENTE ${patientId}\\nRilevato: ${alerts.join(\", \")}`;\n} \nmsg.payload = {\n    chatId: CHAT_ID,\n    type: \"message\",\n    content: messaggio\n};\n\nreturn msg;\n",
         "outputs": 1,
         "timeout": 0,
         "noerr": 0,

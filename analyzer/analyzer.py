@@ -165,7 +165,7 @@ class Analyzer:
         
 
         # tachycardia check
-        print(average_data["spo2"], average_data["hr"] )
+       
         if (average_data["hr"] >= 60).all() and (average_data["hr"] <= 120).all():
             status["heart_rate"]="STABLE_HR"
         if (average_data["spo2"] >= 92).all():
