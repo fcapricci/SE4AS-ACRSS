@@ -18,7 +18,6 @@ class PlannerManager:
         Se non esiste, lo crea.
         """
         if patient_id not in cls._planners:
-            print(f"[PLANNER_MANAGER] Creating planner for patient {patient_id}")
             cls._planners[patient_id] = Planner()
         return cls._planners[patient_id]
 

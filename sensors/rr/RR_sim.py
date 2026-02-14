@@ -9,7 +9,16 @@ UNIT = "breaths/min"
 PATIENTS_NUMBER = int(os.environ["PATIENTS_NUMBER"])
 PATIENTS = range(1, PATIENTS_NUMBER + 1)
 
-client = mqtt.Client()
+MQTT_USER = os.environ["MQTT_USER"]
+MQTT_PASSWORD = os.environ["MQTT_PASSWORD"]
+
+client = mqtt.Client(
+    client_id="sensor_rr",
+    callback_api_version=mqtt.CallbackAPIVersion.VERSION2
+)
+
+client.username_pw_set(MQTT_USER, MQTT_PASSWORD)
+
 client.connect(BROKER, PORT, 60)
 client.loop_start()
 
