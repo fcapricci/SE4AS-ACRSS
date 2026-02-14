@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 
 from os import getenv
+import os
 from typing import Any
 
 import paho.mqtt.client as mqtt
@@ -21,12 +22,15 @@ class Actuator(ABC):
         # Setup MQTT client
 
         ## Initialize client
-        password = None
+        mqtt_user = os.getenv("MQTT_USER")
+        mqtt_password = os.getenv("MQTT_PASSWORD")
+
         subscribe_topic = f"{ACTIONS_TOPICS_PREFIX}/{patient_id}/{name}"
 
-        self.mqtt_client : mqtt.Client = MQTTHandler.get_client(
-            self.username,
-            password,
+        self.mqtt_client = MQTTHandler.get_client(
+            self.username,      
+            mqtt_user,          
+            mqtt_password,      
             subscribe_topic
         )
 

@@ -4,22 +4,24 @@ import json
 
 from handlers.mqtt_handler import MQTTHandler
 from parser import Parser
-
-from paho.mqtt.client import Client, MQTTMessage
 from therapy import Therapy
 
-MQTT_USERNAME = getenv("EXECUTOR_MQTT_USERNAME")
-MQTT_PASSWORD = None
+from paho.mqtt.client import Client, MQTTMessage
+
+MQTT_USERNAME = getenv("MQTT_USER")
+MQTT_PASSWORD = getenv("MQTT_PASSWORD")
 
 THERAPIES_TOPICS_PREFIX = getenv("THERAPIES_TOPICS_PREFIX")
-ACTIONS_TOPICS_PREFIX = getenv("ACTIONS_TOPIC_PREFIX")
+ACTIONS_TOPICS_PREFIX = getenv("ACTIONS_TOPICS_PREFIX") 
 
 # Initialize MQTT client
-mqtt_client : Client = MQTTHandler.get_client(
-    username = MQTT_USERNAME,
-    password = MQTT_PASSWORD,
-    subscribe_topics = f"{THERAPIES_TOPICS_PREFIX}/+"
+mqtt_client: Client = MQTTHandler.get_client(
+    client_id="executor",              
+    username=MQTT_USERNAME,
+    password=MQTT_PASSWORD,
+    subscribe_topics=f"{THERAPIES_TOPICS_PREFIX}/+"
 )
+
 
 # Define message-handling callback
 def on_message(client : Client, userdata : dict[str, Any], message : MQTTMessage) -> None:
@@ -30,6 +32,7 @@ def on_message(client : Client, userdata : dict[str, Any], message : MQTTMessage
 
     ## Parse patient id from topic name: "therapies/{patient_id}"
     patient_id = int(message.topic.split("/")[1])
+
 
     ## Parse fields values from message payload
     data = json.loads(message.payload.decode())
