@@ -80,14 +80,15 @@ def analysis_loop(patient_id, analyzer):
                     full_history=True
                 )
 
-                if raw_data.empty:
+                if raw_data.isna().any().any():    
+                    print(f"[{patient_id}] Baseline initialized")
+                else:
+                    analyzer.initialize_baseline(raw_data)
+                    analyzer.par_initialized = True
+
+            if raw_data.isna().any().any():
                     print(f"[{patient_id}] No historical data yet, waiting...")
                     continue
-
-                analyzer.initialize_baseline(raw_data)
-                analyzer.par_initialized = True
-                print(f"[{patient_id}] Baseline initialized")
-
             # ============================
             # RUNTIME
             # ============================
@@ -99,7 +100,7 @@ def analysis_loop(patient_id, analyzer):
             if raw_data.empty:
                 print(f"[{patient_id}] No data available, waiting...")
                 continue
-
+            
             # ---- EWMA ----
             data_slow_filtered = analyzer.filter_EWMA(raw_data.copy())
             data_fast_filtered = analyzer.filter_EWMA(
@@ -110,8 +111,9 @@ def analysis_loop(patient_id, analyzer):
 
             # ---- trend & slope ----
             trend = analyzer.calculate_trend(data_slow_filtered)
+            print(trend)
             metric_trend = analyzer.classify_trend(trend)
-
+            
             slope = analyzer.calculate_slope(
                 raw_data,
                 data_slow_filtered,
@@ -138,14 +140,13 @@ def analysis_loop(patient_id, analyzer):
             )
 
             ts_ms = int(datetime.now().timestamp() * 1000)
-
+            
             status_patient = {
                 'timestamp': ts_ms,
                 'status': status,
                 'trend': metric_trend,
                 'intensity': slope_trend
             }
-
             mqtt.publish(publish_topic, status_patient)
 
     except KeyboardInterrupt:

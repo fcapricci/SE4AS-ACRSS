@@ -109,10 +109,11 @@ def read_data(
             data[f"time_{m}"] = data["time"]
 
         
+
         data = data.drop(columns=["time"])
+            
+        return compact_dataframe(data)
 
-
-        return data
 
     except Exception as e:
         print(f"[Influx read_data error] {e}")
@@ -120,6 +121,16 @@ def read_data(
         traceback.print_exc()
         return pd.DataFrame()
 
+def compact_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    non_nan_counts = df.notna().sum()
+    
+    min_count = non_nan_counts.min()
+    compacted = pd.DataFrame({
+        col: df[col].dropna().iloc[:min_count].values
+        for col in df.columns
+    })
+    
+    return compacted
 
 def close_connection():
     if influx_client:

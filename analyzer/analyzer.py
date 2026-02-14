@@ -259,13 +259,11 @@ class Analyzer:
             return data
         
         float_cols = data.select_dtypes(include=['float'])
-        
         # Differenze temporali
         timestamps_cols = {
             i: (data[i].astype('int64') / 1e9).diff().fillna(1) 
-            for i in data.select_dtypes(include=['datetimetz']).columns
+            for i in data.select_dtypes(include=['datetimetz','datetime']).columns
         }
-        
         # Gradiente dei valori
         diff = {
             str(i): float_cols[i].diff().replace(0, 1e-9).fillna(1e-9) 
@@ -276,7 +274,6 @@ class Analyzer:
             val_k: diff[val_k] / timestamps_cols[time_k] 
             for (time_k, val_k) in zip(timestamps_cols.keys(), diff.keys())
         }
-        
         # Gradiente massimo (95° percentile) per evitare spike
         g_max = {i: np.percentile(np.abs(diff[i].values), 95) for i in diff.keys()}
         
@@ -361,26 +358,48 @@ class Analyzer:
             ]
 
         return trend_mean
-    """
+
+    
+
     def calculate_trend(self, slow_EWMA_data):
 
         trend_mean = pd.DataFrame()
 
         for c in slow_EWMA_data.select_dtypes(include=['float']).columns:
-            # derivata temporale del segnale (non della fase)
-            d_signal = slow_EWMA_data[c].diff().dropna()
 
-            if len(d_signal) == 0 or self.sigma_baseline[c] == 0:
+            y = slow_EWMA_data[c].values
+            x = np.arange(len(y))
+            if len(y) < 2 or self.sigma_baseline[c] == 0:
                 trend_mean[c] = [0.0]
                 continue
 
-            # normalizzazione clinica
+            slope = np.polyfit(x, y, 1)[0]
+
             trend_mean[c] = [
-                d_signal.mean() / np.sqrt(self.sigma_baseline[c])
+                slope / np.sqrt(self.sigma_baseline[c])
+            ]
+        return trend_mean
+
+    """    
+    
+    def calculate_trend(self, slow_EWMA_data):
+
+        trend_mean = pd.DataFrame()
+
+        for c in slow_EWMA_data.select_dtypes(include=['float']).columns:
+            
+            delta = slow_EWMA_data[c].iloc[-1] - slow_EWMA_data[c].iloc[0]
+
+            if self.sigma_baseline[c] == 0:
+                trend_mean[c] = [0.0]
+                continue
+
+            trend_mean[c] = [
+                delta.mean() / np.sqrt(self.sigma_baseline[c])
             ]
 
         return trend_mean
-    
+
     def calculate_delta_time(self, time_col):
         """Compute medio Δt  in seconds"""
         if len(time_col) < 2:
@@ -395,25 +414,28 @@ class Analyzer:
         
         return delta_mean.total_seconds()
     
-    def calculate_slope(self,data,slow_EWMA_data, fast_EWMA_data):
-        dt = {}
-        k = {}
-        t_slope = {"time_hr":30, "time_rr":90, "time_spo2":60, "time_sbp":60, "time_dbp":30, "time_map":60}
-        slope = {}
-        for c in data.select_dtypes(include=['datetimetz']).columns:
-            dt[c] = self.calculate_delta_time(data[c])
-            k[c] = int(t_slope[c] /(dt[c]))
-        for c in METRICS:
-            t = k[f"time_{c}"]
-            i = 0
-            s = []
+    def calculate_slope(self, data, slow_EWMA_data, fast_EWMA_data):
 
-            while t < max(slow_EWMA_data.shape[0],fast_EWMA_data.shape[0]):
-                s.append((fast_EWMA_data.iloc[t][c] - slow_EWMA_data.iloc[i][c])/k[f"time_{c}"])
-                i+=1
-                t+=1
-            slope[c] = np.sum(s)
+        slope = {}
+
+        dt = {}
+        for col in data.select_dtypes(include=['datetime64']).columns:
+            dt[col] = self.calculate_delta_time(data[col])
+
+        for c in METRICS:
+
+            time_key = f"time_{c}"
+
+            if time_key not in dt or dt[time_key] == 0:
+                slope[c] = 0
+                continue
+
+            delta = fast_EWMA_data[c].iloc[-1] - slow_EWMA_data[c].iloc[-1]
+
+            slope[c] = delta / dt[time_key]
+
         return slope
+
         
     def classify_slope(self,value, thresholds):
         sd, md, mi, si = thresholds

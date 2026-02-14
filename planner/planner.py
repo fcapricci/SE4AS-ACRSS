@@ -109,15 +109,15 @@ class Planner():
             if trend['spo2'] == 'IMPROVING':
                 self.therapy['ox_therapy'] += 1
                 ox_modified = True
-                print(f"Ossigeno aumentato a {self.therapy['ox_therapy']} L/min (LIGHT_HYPOXIA - IMPROVING)")
+                print(f"Oxygen improved to {self.therapy['ox_therapy']} L/min (LIGHT_HYPOXIA - IMPROVING)")
             elif trend['spo2'] == 'STABLE' and (pattern_decrease in intensity['spo2']) and self.therapy['ox_therapy'] < self.MAX_NON_INVASIVE_OX_THERAPY :
                 self.therapy['ox_therapy'] += 2
                 ox_modified = True
-                print(f"Ossigeno aumentato a {self.therapy['ox_therapy']} L/min (LIGHT_HYPOXIA - STABLE)")
+                print(f"Oxygen improved to {self.therapy['ox_therapy']} L/min (LIGHT_HYPOXIA - STABLE)")
             elif trend['spo2'] == 'DETERIORING' and self.therapy['ox_therapy'] < self.MAX_NON_INVASIVE_OX_THERAPY :
                 self.therapy['ox_therapy'] += 2
                 ox_modified = True
-                print(f"Ossigeno aumentato a {self.therapy['ox_therapy']} L/min (LIGHT_HYPOXIA - DETERIORING)")
+                print(f"Oxygen improved to {self.therapy['ox_therapy']} L/min (LIGHT_HYPOXIA - DETERIORING)")
         elif status['oxigenation'] == "GRAVE_HYPOXIA" and self.therapy['ox_therapy'] < self.MAX_NON_INVASIVE_OX_THERAPY :
             self.therapy['ox_therapy'] = self.MAX_NON_INVASIVE_OX_THERAPY 
             ox_modified = True
@@ -125,7 +125,7 @@ class Planner():
         elif status['oxigenation'] == "FAILURE_OXYGEN_THERAPY":
             self.therapy['alert'].add('FAILURE_OXYGEN_THERAPY' )
             ox_modified = True
-            print("ALERT: Fallimento ossigenoterapia")
+            print("ALERT: oxygen therapy failure")
         # Controllo se il paziente viene stabilizzato
         elif (pattern_stable in status['oxigenation'] and trend['spo2'] != 'DETERIORING'):
             self.therapy['ox_therapy'] = self.therapy['ox_therapy']-1 if self.therapy['ox_therapy'] > 0 else self.therapy['ox_therapy']  
