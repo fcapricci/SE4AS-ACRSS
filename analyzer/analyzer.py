@@ -165,18 +165,26 @@ class Analyzer:
         sbp_shock = CLINICAL_RULES.getfloat("pressure", "sbp_shock")
 
         # =========================
+        # COMPUTE MEAN VALUES
+        # =========================
+
+        mean_spo2 = average_data["spo2"].mean()
+        mean_rr = average_data["rr"].mean()
+        mean_hr = average_data["hr"].mean()
+        mean_map = average_data["map"].mean()
+        mean_sbp = average_data["sbp"].mean()
+
+        # =========================
         # OXYGENATION
         # =========================
 
-        if (average_data["spo2"] >= spo2_stable).all() and \
-        ((average_data["rr"] >= rr_min).all() and (average_data["rr"] <= rr_max).all()):
+        if mean_spo2 >= spo2_stable and rr_min <= mean_rr <= rr_max:
             status["oxigenation"] = "STABLE_RESPIRATION"
 
-        elif (average_data["spo2"] < spo2_stable).all() and \
-            (average_data["spo2"] >= spo2_light).all():
+        elif spo2_light <= mean_spo2 < spo2_stable:
             status["oxigenation"] = "LIGHT_HYPOXIA"
 
-        elif (average_data["spo2"] < spo2_light).all():
+        elif mean_spo2 < spo2_light:
             if therapy.get("ox_therapy", 0) >= oxygen_fail:
                 status["oxigenation"] = "FAILURE_OXYGEN_THERAPY"
             else:
@@ -189,14 +197,13 @@ class Analyzer:
         # RESPIRATION
         # =========================
 
-        if (average_data["rr"] >= rr_tachy).all() and \
-        (average_data["rr"] <= rr_distress).all():
+        if rr_tachy <= mean_rr <= rr_distress:
             status["respiration"] = "MODERATE_TACHYPNEA"
 
-        elif (average_data["rr"] > rr_distress).all():
+        elif mean_rr > rr_distress:
             status["respiration"] = "RESPIRATORY_DISTRESS"
 
-        elif (average_data["rr"] < rr_min).all():
+        elif mean_rr < rr_min:
             status["respiration"] = "BRADYPNEA"
 
         else:
@@ -206,17 +213,13 @@ class Analyzer:
         # HEART RATE
         # =========================
 
-        if (average_data["hr"] >= hr_min).all() and \
-        (average_data["hr"] <= hr_max).all():
+        if hr_min <= mean_hr <= hr_max:
             status["heart_rate"] = "STABLE_HR"
 
-        elif (average_data["spo2"] >= spo2_stable).all() and \
-            (average_data["hr"] > hr_primary).all() and \
-            (average_data["map"] >= map_hypo).all():
+        elif mean_spo2 >= spo2_stable and mean_hr > hr_primary and mean_map >= map_hypo:
             status["heart_rate"] = "PRIMARY_TACHYCARDIA"
 
-        elif (average_data["spo2"] >= spo2_stable).all() and \
-            (average_data["hr"] > hr_tachy).all():
+        elif mean_spo2 >= spo2_stable and mean_hr > hr_tachy:
             status["heart_rate"] = "COMPENSED_TACHYCARDIA"
 
         else:
@@ -226,17 +229,15 @@ class Analyzer:
         # BLOOD PRESSURE
         # =========================
 
-        if (average_data["map"] < map_hypo).all():
+        if mean_map < map_hypo:
 
-            if (average_data["map"] < map_shock).all() or \
-            (average_data["sbp"] < sbp_shock).all():
+            if mean_map < map_shock or mean_sbp < sbp_shock:
                 status["blood_pressure"] = "SHOCK"
 
-            elif (average_data["rr"] > rr_distress).all():
+            elif mean_rr > rr_distress:
                 status["blood_pressure"] = "DISTRESS_OVERLOAD"
 
-            elif (average_data["hr"] > hr_tachy).all() and \
-                (average_data["map"] >= map_hypo).all():
+            elif mean_hr > hr_tachy:
                 status["blood_pressure"] = "CIRCULARITY_UNSTABILITY"
 
             else:

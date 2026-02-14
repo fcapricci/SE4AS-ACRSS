@@ -835,6 +835,10 @@
                 "DETERIORING": {
                   "color": "red",
                   "index": 0
+                },
+                "IMPROVING": {
+                  "color": "dark-green",
+                  "index": 1
                 }
               },
               "type": "value"
@@ -1074,7 +1078,7 @@
           "refId": "A"
         }
       ],
-      "title": "New panel",
+      "title": "INTENSITY",
       "type": "state-timeline"
     },
     {
