@@ -397,7 +397,7 @@ class Analyzer:
             trend_mean[c] = [
                 delta.mean() / np.sqrt(self.sigma_baseline[c])
             ]
-
+        print(trend_mean)
         return trend_mean
 
     def calculate_delta_time(self, time_col):
