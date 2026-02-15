@@ -4,6 +4,7 @@ from typing import Any
 from collections.abc import Callable
 
 import paho.mqtt.client as mqtt
+import json
 from paho.mqtt.enums import MQTTProtocolVersion
 from paho.mqtt.reasoncodes import ReasonCode
 from paho.mqtt.subscribeoptions import SubscribeOptions
@@ -50,21 +51,14 @@ class MQTTHandler:
 
         # Connect client with broker
         print(f"[{client.username.upper()}]: Connecting to MQTT broker...")
+
         client.connect(
             cls.MQTT_HOSTNAME,
-            cls.MQTT_PORT
+            cls.MQTT_PORT,
+            keepalive=180
         )
 
-        # Start network loop
-        if not blocking:
-
-            ## On background thread
-            client.loop_start()
-
-        else:
-
-            ## On main thread
-            client.loop_forever()
+        client.loop_start()
 
     @staticmethod
     def on_connect(client : mqtt.Client, userdata : dict[str, Any], flags, reason_code : ReasonCode, properties) -> None:
@@ -89,20 +83,22 @@ class MQTTHandler:
     @staticmethod
     def publish(client : mqtt.Client, messages : list[ tuple[str, Any] ]) -> None:
 
-        # Send messages
-        # Store sent messages
-        sent : list[ tuple[str, mqtt.MQTTMessageInfo] ] = [ 
-            (topic, client.publish(topic = topic, payload = payload))
-            for topic, payload in messages
-        ]
+        sent : list[ tuple[str, mqtt.MQTTMessageInfo] ] = []
 
-        # Wait for messages to return, either with success or failure.
+        for topic, payload in messages:
+
+            # 🔥 Serializzazione sicura
+            if not isinstance(payload, (str, bytes, bytearray)):
+                payload = json.dumps(payload)
+
+            msg_info = client.publish(topic=topic, payload=payload)
+            sent.append((topic, msg_info))
+
         for topic, message in sent:
-            message.wait_for_publish(timeout = 60)
 
-            # Log results
             result = "succeeded" if message.is_published else "failed"
-            print(f"[{client.username.upper()}]: Publish to {topic} {result}. Reason code: {message.rc}.")
+            
+
 
     #
     # Monitoring callbacks

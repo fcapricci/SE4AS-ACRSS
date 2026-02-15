@@ -80,9 +80,9 @@ class MQTT_Handler:
         therapy = PlannerManager.process_symptoms(patient_id, payload)
 
         topic_out = f"acrss/therapies/{patient_id}"
-        client.publish(topic_out, json.dumps(therapy), qos=1)
+        client.publish(topic_out, json.dumps(therapy), qos=1, retain=True)
 
-        print(f"[PLANNER] Therapy published for patient {patient_id}")
+        
 
 
     @classmethod

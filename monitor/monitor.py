@@ -37,7 +37,6 @@ def main():
 
     client.connect(MQTT_BROKER, MQTT_PORT, 60)
 
-    print("[monitor] running (MQTT → MQTT bridge)")
     client.loop_forever()
 
 if __name__ == "__main__":
