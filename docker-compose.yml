@@ -117,7 +117,9 @@ services:
   #
 
   analyzer:
-    build: ./analyzer
+    build:
+      context: .
+      dockerfile: analyzer/Dockerfile
     container_name: analyzer
     depends_on:
       - mosquitto
@@ -141,7 +143,9 @@ services:
   #
 
   planner:
-    build: ./planner
+    build:
+      context: .
+      dockerfile: planner/Dockerfile
     container_name: planner
     depends_on:
       - mosquitto

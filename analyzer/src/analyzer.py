@@ -159,7 +159,6 @@ class Analyzer:
         hr_max = CLINICAL_RULES.getfloat("heart_rate", "hr_max")
         hr_tachy = CLINICAL_RULES.getfloat("heart_rate", "tachy_min")
         hr_primary = CLINICAL_RULES.getfloat("heart_rate", "primary_min")
-        max_tachy = CLINICAL_RULES.getfloat("heart_rate", "max_tachy")
 
         map_shock = CLINICAL_RULES.getfloat("pressure", "map_shock")
         map_hypo = CLINICAL_RULES.getfloat("pressure", "map_hypo")
@@ -401,7 +400,6 @@ class Analyzer:
             trend_mean[c] = [
                 delta.mean() / np.sqrt(self.sigma_baseline[c])
             ]
-        print(trend_mean)
         return trend_mean
 
     def calculate_delta_time(self, time_col):

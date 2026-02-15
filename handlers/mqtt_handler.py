@@ -14,7 +14,7 @@ class MQTTHandler:
     MQTT_PORT = int(getenv("MQTT_PORT"))
 
     @classmethod
-    def get_client(cls, client_id: str, username: str | None, password: str | None, subscribe_topics):
+    def get_client(cls, client_id: str, username: str | None, password: str | None, subscribe_topics: str | list[str] | None = None):
 
         print(f"[{client_id.upper()}]: Initializing MQTT client...")
 
@@ -81,7 +81,7 @@ class MQTTHandler:
             # Handle multiple topics scenario
             subscriptions = (topics, SubscribeOptions(qos=2)) if not isinstance(topics, list) else [(topic, SubscribeOptions(qos=2)) for topic in topics]
 
-            print(f"[{client.username.upper()}]: Subscribing to {topics if not isinstance(topics, list) else ", ".join(topics)}...")
+            print(f"[{client.username.upper()}]: Subscribing to {topics if not isinstance(topics, list) else ', '.join(topics)}...")
             client.subscribe(
                 topic = subscriptions,
             )

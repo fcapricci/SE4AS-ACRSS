@@ -1,4 +1,3 @@
-from mqtt_handler import MQTTHandler
 from analyzer import Analyzer
 import threading
 import time
@@ -6,9 +5,19 @@ import pandas as pd
 from datetime import datetime
 from datetime import timedelta
 import os
-from influx_handler import read_data, close_connection
+from collections import defaultdict
 
-MQTT_BROKER = os.getenv("MQTT_BROKER", "localhost")
+import json
+from influx_handler import read_data, close_connection
+from handlers.mqtt_handler import MQTTHandler
+from paho.mqtt.client import Client, MQTTMessage
+
+
+MQTT_USERNAME = os.getenv("MQTT_USER")
+MQTT_PASSWORD = os.getenv("MQTT_PASSWORD")
+
+SYMPTOMS_TOPIX_PREFIX = os.getenv("SYMPTOMS_TOPIX_PREFIX") # output
+
 
 # numero pazienti
 PATIENTS_NUMBER = int(os.getenv("PATIENTS_NUMBER", 1))
@@ -56,16 +65,11 @@ def compute_agg_from_raw(raw_data, window_seconds=60):
 
     return agg_df
 
+def analysis_loop(patient_id, analyzer, mqtt_client):
 
-def analysis_loop(patient_id, analyzer):
-
-    publish_topic = f"acrss/symptoms/{patient_id}"
-
-
-    mqtt = MQTTHandler(MQTT_BROKER)
-    mqtt.start()
 
     try:
+
         while True:
             time.sleep(1)
 
@@ -146,8 +150,17 @@ def analysis_loop(patient_id, analyzer):
                 'trend': metric_trend,
                 'intensity': slope_trend
             }
-            mqtt.publish(publish_topic, status_patient)
 
+            payload = [
+                (f"{SYMPTOMS_TOPIX_PREFIX}/{patient_id}", json.dumps(status_patient))
+            ]
+            ## Publish
+            print(f"[{mqtt_client.username.upper()}]: Publishing actuators actions...")
+            MQTTHandler.publish(
+                client = mqtt_client,
+                messages = payload
+            )
+            
     except KeyboardInterrupt:
         print(f"[{patient_id}] Interrupted by user")
     except Exception as e:
@@ -155,18 +168,22 @@ def analysis_loop(patient_id, analyzer):
         import traceback
         traceback.print_exc()
     finally:
-        mqtt.stop()
+        mqtt_client.stop()
 
 
 def main():
     threads = []
-
+    # Initialize MQTT client
+    mqtt_client: Client = MQTTHandler.get_client(
+        client_id="ananlyzer",              
+        username=MQTT_USERNAME,
+        password=MQTT_PASSWORD)
+    MQTTHandler.connect(mqtt_client, blocking = False)
     for patient_id in PATIENT_IDS:
         analyzer = Analyzer()
-
         thread = threading.Thread(
             target=analysis_loop,
-            args=(patient_id, analyzer),
+            args=(patient_id, analyzer, mqtt_client),
             daemon=False
         )
         thread.start()

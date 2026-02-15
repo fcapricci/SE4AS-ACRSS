@@ -1,14 +1,14 @@
 FROM python:3.11-slim
 
-WORKDIR /app
+WORKDIR /usr/src/app
 
-COPY requirements.txt .
+COPY analyzer/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY analyzer.py .
-COPY mqtt_handler.py .
-COPY influx_handler.py .
-COPY main.py .
-COPY config_loader.py .
-COPY config/ ./config/.
+COPY analyzer/config ./config
+COPY analyzer/src .
+
+COPY handlers/mqtt_handler.py handlers/mqtt_handler.py
+
+
 CMD ["python", "main.py"]
