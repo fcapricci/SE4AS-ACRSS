@@ -14,42 +14,31 @@ class MQTTHandler:
     MQTT_PORT = int(getenv("MQTT_PORT"))
 
     @classmethod
-    def get_client(cls, username : str, password : str, subscribe_topics : str | list[str] | None) -> mqtt.Client:
+    def get_client(cls, client_id: str, username: str | None, password: str | None, subscribe_topics):
 
-        # Initialize instance
-        print(f"[{username.upper()}]: Initializing MQTT client...")
+        print(f"[{client_id.upper()}]: Initializing MQTT client...")
 
-        ## Set MQTTProtocolVersion 5 for reason codes and authentication support.
-        ## Set CallbackAPIVersion.VERSION2 as VERSION1 deprecated.
         client = mqtt.Client(
-            protocol = MQTTProtocolVersion.MQTTv5,
-            callback_api_version = mqtt.CallbackAPIVersion.VERSION2
+            client_id=client_id,   
+            protocol=MQTTProtocolVersion.MQTTv5,
+            callback_api_version=mqtt.CallbackAPIVersion.VERSION2
         )
 
-        # Setup
+        if username and password:
+            client.username_pw_set(username, password)
 
-        ## Set username and password
-        client.username_pw_set(
-            username,
-            password
-        )
-
-        ## Set callbacks
         client.on_connect = cls.on_connect
         client.on_subscribe = cls.on_subscribe
         client.on_disconnect = cls.on_disconnect
 
-        ## Set subscribe topics
         client.user_data_set({
-            "subscribe_topics" : subscribe_topics
+            "subscribe_topics": subscribe_topics
         })
 
-        # Print result
-        print(f"[{username.upper()}]: MQTT client initialization succeeded.")
+        print(f"[{client_id.upper()}]: MQTT client initialization succeeded.")
 
-        # Return instance
         return client
-    
+
     @staticmethod
     def set_on_message(
         client : mqtt.Client,

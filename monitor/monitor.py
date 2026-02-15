@@ -4,6 +4,9 @@ import paho.mqtt.client as mqtt
 MQTT_BROKER = os.getenv("MQTT_BROKER", "mosquitto")
 MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
 
+MQTT_USER = os.getenv("MQTT_USER")
+MQTT_PASSWORD = os.getenv("MQTT_PASSWORD")
+
 IN_PREFIX  = "acrss/sensors"
 OUT_PREFIX = "acrss/states"
 
@@ -25,6 +28,10 @@ def on_message(client, userdata, msg):
 
 def main():
     client = mqtt.Client(client_id="monitor")
+
+    if MQTT_USER and MQTT_PASSWORD:
+        client.username_pw_set(MQTT_USER, MQTT_PASSWORD)
+
     client.on_connect = on_connect
     client.on_message = on_message
 

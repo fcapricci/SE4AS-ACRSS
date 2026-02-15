@@ -1,6 +1,7 @@
 import json
 import threading
 from collections import defaultdict
+import os
 import pandas as pd
 import paho.mqtt.client as mqtt
 
@@ -14,7 +15,12 @@ class MQTTHandler:
         self.patient_data = defaultdict(dict)
         self.lock = threading.Lock()
 
+        mqtt_user = os.getenv("MQTT_USER")
+        mqtt_password = os.getenv("MQTT_PASSWORD")
+
         self.client = mqtt.Client()
+        if mqtt_user and mqtt_password:
+            self.client.username_pw_set(mqtt_user, mqtt_password)
         self.client.on_connect = self.on_connect
         self.client.on_message = self.on_message
 

@@ -8,6 +8,9 @@ from planner_manager import PlannerManager
 MQTT_BROKER = os.getenv("MQTT_BROKER", "mosquitto")
 MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
 
+MQTT_USER = os.getenv("MQTT_USER")
+MQTT_PASSWORD = os.getenv("MQTT_PASSWORD")
+
 SOURCE = "sim"
 SYMPTOMS_TOPIC = "acrss/symptoms/+"
 PLANNER_TOPIC = "acrss/plan/{PATIENT_ID}" #write
@@ -31,6 +34,8 @@ class MQTT_Handler:
         ## CallbackAPIVersion.VERSION1 deprecated 
         client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 
+        if MQTT_USER and MQTT_PASSWORD:
+           client.username_pw_set(MQTT_USER, MQTT_PASSWORD)
         # Setup
 
         ## Callbacks
