@@ -159,6 +159,7 @@ class Analyzer:
         hr_max = CLINICAL_RULES.getfloat("heart_rate", "hr_max")
         hr_tachy = CLINICAL_RULES.getfloat("heart_rate", "tachy_min")
         hr_primary = CLINICAL_RULES.getfloat("heart_rate", "primary_min")
+        max_tachy = CLINICAL_RULES.getfloat("heart_rate", "max_tachy")
 
         map_shock = CLINICAL_RULES.getfloat("pressure", "map_shock")
         map_hypo = CLINICAL_RULES.getfloat("pressure", "map_hypo")
@@ -210,15 +211,14 @@ class Analyzer:
         (average_data["hr"] <= hr_max).all():
             status["heart_rate"] = "STABLE_HR"
 
-        elif (average_data["spo2"] >= spo2_stable).all() and \
-            (average_data["hr"] > hr_primary).all() and \
-            (average_data["map"] >= map_hypo).all():
-            status["heart_rate"] = "PRIMARY_TACHYCARDIA"
-
-        elif (average_data["spo2"] >= spo2_stable).all() and \
-            (average_data["hr"] > hr_tachy).all():
-            status["heart_rate"] = "COMPENSED_TACHYCARDIA"
-
+        if (average_data["spo2"] >= spo2_stable).all():
+            if  (average_data["hr"] > hr_primary).all() and \
+                (average_data["map"] >= map_hypo).all():
+                    status["heart_rate"] = "PRIMARY_TACHYCARDIA"
+            elif (average_data["hr"] > hr_tachy).all():
+                status["heart_rate"] = "COMPENSED_TACHYCARDIA"
+            else:
+                status["heart_rate"] = "HIGH_HR"    
         else:
             status["heart_rate"] = "HIGH_HR"
 

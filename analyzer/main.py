@@ -111,7 +111,6 @@ def analysis_loop(patient_id, analyzer):
 
             # ---- trend & slope ----
             trend = analyzer.calculate_trend(data_slow_filtered)
-            print(trend)
             metric_trend = analyzer.classify_trend(trend)
             
             slope = analyzer.calculate_slope(
