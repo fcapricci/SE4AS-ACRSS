@@ -3,41 +3,20 @@ version: "3.9"
 services:
 
   #
-  # Sensors
+  # Sensors (unified)
   #
 
-  sensor_spo2:
-    build: ./sensors/spo2
-    container_name: sensor_spo2
+  sensors:
+    build:
+      context: .
+      dockerfile: sensors/Dockerfile
+    container_name: sensors
     env_file:
       - .env
     depends_on:
       - mosquitto
-
-  sensor_hr:
-    build: ./sensors/hr
-    container_name: sensor_hr
-    env_file:
-      - .env
-    depends_on:
-      - mosquitto
-
-  sensor_rr:
-    build: ./sensors/rr
-    container_name: sensor_rr
-    env_file:
-      - .env
-    depends_on:
-      - mosquitto
-
-  sensor_bp:
-    build: ./sensors/bp
-    container_name: sensor_bp
-    env_file:
-      - .env
-    depends_on:
-      - mosquitto
-
+    restart: unless-stopped
+    
   #
   # Broker
   #
