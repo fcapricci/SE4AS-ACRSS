@@ -22,7 +22,7 @@ METRICS = ["hr", "rr", "spo2", "sbp", "dbp", "map"]
 class Analyzer:
     def __init__(self):
         """Initialize pipeline data"""
-        self.hypoxia_starting_time = None
+        self.hypoxia_starting_time = 0
         self.ox_therapy_monitoring = 600 #secondi
         self.hypoxia_status = ['LIGHT_HYPOXIA', 'GRAVE_HYPOXIA']
         self.par_initialized = False
@@ -138,8 +138,8 @@ class Analyzer:
         
         return alpha_t
     
-    def generate_status(self, average_data, therapy: dict):
-
+    #def generate_status(self, average_data, therapy: dict):
+    def generate_status(self, average_data):
         status = {}
 
         # =========================
@@ -148,8 +148,8 @@ class Analyzer:
 
         spo2_stable = CLINICAL_RULES.getfloat("oxygen", "stable_spo2")
         spo2_light = CLINICAL_RULES.getfloat("oxygen", "light_hypoxia_min")
-        oxygen_fail = CLINICAL_RULES.getfloat("oxygen", "oxygen_failure_threshold")
-
+        #oxygen_fail = CLINICAL_RULES.getfloat("oxygen", "oxygen_failure_threshold")
+        oxygen_fail_time = CLINICAL_RULES.getfloat("oxygen", "oxygen_failure_threshold")
         rr_min = CLINICAL_RULES.getfloat("respiration", "rr_min")
         rr_max = CLINICAL_RULES.getfloat("respiration", "rr_max")
         rr_tachy = CLINICAL_RULES.getfloat("respiration", "tachy_min")
@@ -186,7 +186,9 @@ class Analyzer:
             status["oxigenation"] = "LIGHT_HYPOXIA"
 
         elif mean_spo2 < spo2_light:
-            if therapy.get("ox_therapy", 0) >= oxygen_fail:
+            #if therapy.get("ox_therapy", 0) >= oxygen_fail:
+            if self.hypoxia_starting_time > 0 and \
+                (datetime.now().timestamp() - self.hypoxia_starting_time) > oxygen_fail_time:
                 status["oxigenation"] = "FAILURE_OXYGEN_THERAPY"
             else:
                 status["oxigenation"] = "GRAVE_HYPOXIA"

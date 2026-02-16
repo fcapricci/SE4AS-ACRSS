@@ -14,14 +14,14 @@ MQTT_BROKER = os.getenv("MQTT_BROKER", "localhost")
 PATIENTS_NUMBER = int(os.getenv("PATIENTS_NUMBER", 1))
 PATIENT_IDS = [str(i + 1) for i in range(PATIENTS_NUMBER)]
 
-therapy_old = {
+"""therapy_old = {
     'ox_therapy': 0,
     'fluids': None,
     'carvedilolo_beta_blocking': 0,
     'improve_beta_blocking': 0,
     'alert': [],
     'timestamp': None
-}
+}"""
 
 
 def compute_agg_from_raw(raw_data, window_seconds=60):
@@ -130,7 +130,7 @@ def analysis_loop(patient_id, analyzer):
             )
             slope_trend = analyzer.classify_all_slopes(slope)
 
-            therapy = therapy_old
+            #therapy = therapy_old
 
             agg_data = compute_agg_from_raw(raw_data, window_seconds=60)
 
@@ -139,13 +139,19 @@ def analysis_loop(patient_id, analyzer):
                 print(f"[{patient_id}] Not enough data for aggregation yet")
                 continue
 
-            # ---- status ----
-            status = analyzer.generate_status(agg_data, therapy)
+            #status = analyzer.generate_status(agg_data, therapy)
+            status = analyzer.generate_status(agg_data)
 
-            analyzer.hypoxia_starting_time = (
+            """analyzer.hypoxia_starting_time = (
                 int(datetime.now().timestamp())
                 if status['oxigenation'] not in analyzer.hypoxia_status
                 else analyzer.hypoxia_starting_time
+            )"""
+
+            analyzer.hypoxia_starting_time = (
+                int(datetime.now().timestamp())
+                if status['oxigenation'] in analyzer.hypoxia_status
+                else 0
             )
 
             ts_ms = int(datetime.now().timestamp() * 1000)
