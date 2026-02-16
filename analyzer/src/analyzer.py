@@ -219,16 +219,18 @@ class Analyzer:
         if hr_min <= mean_hr <= hr_max:
             status["heart_rate"] = "STABLE_HR"
 
-        if (average_data["spo2"] >= spo2_stable).all():
-            if  (average_data["hr"] > hr_primary).all() and \
-                (average_data["map"] >= map_hypo).all():
-                    status["heart_rate"] = "PRIMARY_TACHYCARDIA"
-            elif (average_data["hr"] > hr_tachy).all():
-                status["heart_rate"] = "COMPENSED_TACHYCARDIA"
-            else:
-                status["heart_rate"] = "HIGH_HR"    
+        elif (average_data["spo2"] >= spo2_stable).all() and \
+            (average_data["hr"] > hr_primary).all() and \
+            (average_data["map"] >= map_hypo).all():
+            status["heart_rate"] = "PRIMARY_TACHYCARDIA"
+
+        elif (average_data["spo2"] >= spo2_stable).all() and \
+            (average_data["hr"] > hr_tachy).all():
+            status["heart_rate"] = "COMPENSED_TACHYCARDIA"
+
         else:
             status["heart_rate"] = "HIGH_HR"
+
 
         # =========================
         # BLOOD PRESSURE
