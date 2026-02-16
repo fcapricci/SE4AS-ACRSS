@@ -70,7 +70,7 @@
         "type": "mqtt in",
         "z": "0c026383a673c2cc",
         "name": "",
-        "topic": "acrss/therapies/+",
+        "topic": "acrss/actions/+/alert_server",
         "qos": "2",
         "datatype": "auto-detect",
         "broker": "c41a994ac3dba23e",
@@ -78,11 +78,12 @@
         "rap": true,
         "rh": 0,
         "inputs": 0,
-        "x": 320,
+        "x": 360,
         "y": 140,
         "wires": [
             [
-                "50852ccdc015b40e"
+                "50852ccdc015b40e",
+                "a488b4fbf9ad87cc"
             ]
         ]
     },
@@ -91,14 +92,14 @@
         "type": "function",
         "z": "0c026383a673c2cc",
         "name": "parser",
-        "func": "const patientId = msg.topic.split(\"/\").pop();\nconst alerts = msg.payload.alert;\nconst CHAT_ID = -5200673556; \n\nlet messaggio = \"\";\n\nif (Array.isArray(alerts) && alerts.length > 0) {\n    messaggio = `🚨 ALERT PAZIENTE ${patientId}\\nRilevato: ${alerts.join(\", \")}`;\n} \nmsg.payload = {\n    chatId: CHAT_ID,\n    type: \"message\",\n    content: messaggio\n};\n\nreturn msg;\n",
+        "func": "// Topic: acrss/actions/{patient_id}/alert_server\nconst parts = msg.topic.split(\"/\");\n\nconst patientId = parts[2];\n\nconst alerts = msg.payload;\n\n// Se non è array o è vuoto, non fare nulla\nif (!Array.isArray(alerts) || alerts.length === 0) {\n    return null;\n}\n\nconst CHAT_ID = -5200673556;\n\nmsg.payload = {\n    chatId: CHAT_ID,\n    type: \"message\",\n    content: `🚨 ALERT PAZIENTE ${patientId}\\nRilevati: ${alerts.join(\", \")}`\n};\n\nreturn msg;\n",
         "outputs": 1,
         "timeout": 0,
         "noerr": 0,
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 510,
+        "x": 610,
         "y": 140,
         "wires": [
             [
@@ -139,5 +140,22 @@
         "wires": [
             []
         ]
+    },
+    {
+        "id": "a488b4fbf9ad87cc",
+        "type": "debug",
+        "z": "0c026383a673c2cc",
+        "name": "debug 1",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 620,
+        "y": 220,
+        "wires": []
     }
 ]
