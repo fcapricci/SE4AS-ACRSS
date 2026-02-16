@@ -117,7 +117,9 @@ services:
   #
 
   analyzer:
-    build: ./analyzer
+    build:
+      context: .
+      dockerfile: analyzer/Dockerfile
     container_name: analyzer
     depends_on:
       - mosquitto
@@ -135,13 +137,16 @@ services:
       PATIENT_ID: 1
       SOURCE: sim
     restart: unless-stopped
+
   
   #
   # Planner
   #
 
   planner:
-    build: ./planner
+    build:
+      context: .
+      dockerfile: planner/Dockerfile
     container_name: planner
     depends_on:
       - mosquitto

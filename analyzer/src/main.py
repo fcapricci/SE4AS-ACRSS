@@ -1,4 +1,4 @@
-from mqtt_handler import MQTTHandler
+from handlers.mqtt_handler import MQTTHandler
 from analyzer import Analyzer
 import threading
 import time
@@ -61,9 +61,19 @@ def analysis_loop(patient_id, analyzer):
 
     publish_topic = f"acrss/symptoms/{patient_id}"
 
+    username = os.getenv("MQTT_USER")
+    password = os.getenv("MQTT_PASSWORD")
 
-    mqtt = MQTTHandler(MQTT_BROKER)
-    mqtt.start()
+    subscribe_topics = None  # non serve subscription qui
+
+    client = MQTTHandler.get_client(
+        client_id=f"analyzer_{patient_id}",
+        username=username,
+        password=password,
+        subscribe_topics=subscribe_topics
+    )
+
+    MQTTHandler.connect(client, blocking=False)
 
     try:
         while True:
@@ -146,8 +156,10 @@ def analysis_loop(patient_id, analyzer):
                 'trend': metric_trend,
                 'intensity': slope_trend
             }
-            mqtt.publish(publish_topic, status_patient)
-
+            MQTTHandler.publish(
+                client,
+                [(publish_topic, status_patient)]
+            )
     except KeyboardInterrupt:
         print(f"[{patient_id}] Interrupted by user")
     except Exception as e:
@@ -155,7 +167,9 @@ def analysis_loop(patient_id, analyzer):
         import traceback
         traceback.print_exc()
     finally:
-        mqtt.stop()
+        client.loop_stop()
+        client.disconnect()
+
 
 
 def main():

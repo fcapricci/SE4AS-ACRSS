@@ -75,7 +75,9 @@ class MQTTHandler:
             # Handle multiple topics scenario
             subscriptions = (topics, SubscribeOptions(qos=2)) if not isinstance(topics, list) else [(topic, SubscribeOptions(qos=2)) for topic in topics]
 
-            print(f"[{client.username.upper()}]: Subscribing to {topics if not isinstance(topics, list) else ", ".join(topics)}...")
+            topics_str = topics if not isinstance(topics, list) else ", ".join(topics)
+            print(f"[{client.username.upper()}]: Subscribing to {topics_str}...")
+
             client.subscribe(
                 topic = subscriptions,
             )
