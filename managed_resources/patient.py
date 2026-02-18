@@ -1,11 +1,28 @@
 import json
 import random
 import time
+import os
+from handlers.mqtt_handler import MQTTHandler
+
+SENSORS_TOPICS_PREFIX =  os.getenv("SENSORS_TOPICS_PREFIX")
+
+username = os.getenv("MQTT_USER")
+password = os.getenv("MQTT_PASSWORD")
+
 
 class Patient:
 
     def __init__(self, patient_id):
         self.patient_id = patient_id
+
+        subscribe_topics = None
+        self.client = MQTTHandler.get_client(
+            client_id=f"{patient_id}",
+            username=username,
+            password=password,
+            subscribe_topics=subscribe_topics
+        )
+        MQTTHandler.connect(self.client, blocking=False)
 
         # Stato fisiologico base
         self.hr = 80.0
@@ -45,10 +62,10 @@ class Patient:
         self.sbp = max(60, min(200, self.sbp))
         self.dbp = max(40, min(120, self.dbp))
 
-    def publish_sensors(self, client):
+    def on_message(self, client, userdata, msg):
 
         now = int(time.time() * 1000)
-
+        base_topic  = f"{SENSORS_TOPICS_PREFIX}/{self.patient_id}"
         # HR
         hr_payload = {
             "ts": now,
@@ -57,9 +74,10 @@ class Patient:
             "source": "sim"
         }
 
-        client.publish(
-            f"acrss/sensors/{self.patient_id}/hr",
-            json.dumps(hr_payload)
+
+        MQTTHandler.publish(
+            client,
+            [(f"{base_topic}/hr", json.dumps(hr_payload))]
         )
 
         # RR
@@ -70,9 +88,9 @@ class Patient:
             "source": "sim"
         }
 
-        client.publish(
-            f"acrss/sensors/{self.patient_id}/rr",
-            json.dumps(rr_payload)
+        MQTTHandler.publish(
+            client,
+            [(f"{base_topic}/rr", json.dumps(rr_payload))]
         )
 
         # SPO2
@@ -83,11 +101,10 @@ class Patient:
             "source": "sim"
         }
 
-        client.publish(
-            f"acrss/sensors/{self.patient_id}/spo2",
-            json.dumps(spo2_payload)
+        MQTTHandler.publish(
+            client,
+            [(f"{base_topic}/spo2", json.dumps(spo2_payload))]
         )
-
         # BP
         bp_payload = {
             "ts": now,
@@ -98,8 +115,7 @@ class Patient:
             "unit": "mmHg",
             "source": "sim"
         }
-
-        client.publish(
-            f"acrss/sensors/{self.patient_id}/bp",
-            json.dumps(bp_payload)
+        MQTTHandler.publish(
+            client,
+            [(f"{base_topic}/bp", json.dumps(bp_payload))]
         )

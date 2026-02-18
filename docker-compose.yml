@@ -91,6 +91,33 @@ services:
       DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${DOCKER_INFLUXDB_INIT_ADMIN_TOKEN}
     restart: unless-stopped
 
+
+
+  managed_resources:
+    build:
+      context: .
+      dockerfile: managed_resources/Dockerfile
+    container_name: managed_resources
+    depends_on:
+      - mosquitto
+    env_file:
+      - .env
+    environment:
+      PYTHONUNBUFFERED: ${PYTHONUNBUFFERED}
+
+      MQTT_HOSTNAME: ${MQTT_HOSTNAME}
+      MQTT_PORT: ${MQTT_PORT}
+
+      MQTT_USER: ${MQTT_USER}
+      MQTT_PASSWORD: ${MQTT_PASSWORD}
+      THERAPIES_TOPICS_PREFIX: ${THERAPIES_TOPICS_PREFIX}
+      ACTIONS_TOPICS_PREFIX: ${ACTIONS_TOPICS_PREFIX}
+      
+      OXYGEN_ACTUATOR_NAME: ${OXYGEN_ACTUATOR_NAME}
+      FLUIDS_ACTUATOR_NAME: ${FLUIDS_ACTUATOR_NAME}
+      BETA_BLOCKING_ACTUATOR_NAME: ${BETA_BLOCKING_ACTUATOR_NAME}
+      ALERT_ACTUATOR_NAME: ${ALERT_ACTUATOR_NAME}
+    restart: unless-stopped
   #
   # Analyzer
   #
