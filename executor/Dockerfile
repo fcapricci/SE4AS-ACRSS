@@ -6,6 +6,7 @@ COPY executor/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY executor/src .
+COPY models/therapy.py models/therapy.py
 COPY handlers/mqtt_handler.py handlers/mqtt_handler.py
 
 CMD ["python", "main.py"]

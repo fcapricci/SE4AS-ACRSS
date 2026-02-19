@@ -1,17 +1,12 @@
-FROM python:3.11-slim
+FROM python:alpine3.23
 
-WORKDIR /app
+WORKDIR /usr/src/app
 
-COPY managed_resources/requirements.txt ./requirements.txt
+COPY managed_resources/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY handlers ./handlers
-
-
-COPY managed_resources/actuators ./actuators
-
-COPY managed_resources .
-
-ENV PYTHONPATH=/app
+COPY managed_resources/src .
+COPY models/therapy.py models/therapy.py
+COPY handlers/mqtt_handler.py handlers/mqtt_handler.py
 
 CMD ["python", "main.py"]

@@ -330,6 +330,7 @@ class Analyzer:
     def initialize_baseline(self, data):
         """Inizializza la baseline con i dati storici"""
         float_cols = data.select_dtypes(include=['float'])
+        print(float_cols)
         self.mu_baseline = {str(i): float_cols[i].mean() for i in float_cols.columns}
         self.sigma_baseline = {str(i): float_cols[i].var() for i in float_cols.columns}
         

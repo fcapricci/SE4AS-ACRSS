@@ -1,6 +1,6 @@
 from os import getenv
 
-from therapy import Therapy
+from models.therapy import Therapy
 
 class Parser:
 

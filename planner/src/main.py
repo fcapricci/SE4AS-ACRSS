@@ -6,11 +6,13 @@ import os
 
 SYMPTOMS_TOPICS_PREFIX = os.getenv("SYMPTOMS_TOPICS_PREFIX")
 THERAPIES_TOPICS_PREFIX = os.getenv("THERAPIES_TOPICS_PREFIX")
+
 MQTT_USERNAME = os.getenv("MQTT_USER")
 MQTT_PASSWORD = os.getenv("MQTT_PASSWORD")
 
 
 def on_message(client, userdata, message):
+    
     try:
         topic = message.topic
         payload = json.loads(message.payload.decode())
@@ -23,7 +25,7 @@ def on_message(client, userdata, message):
 
         MQTTHandler.publish(
             client,
-            [(topic_out, therapy)]
+            (topic_out, therapy)
         )
 
         print(f"[PLANNER] Therapy published for patient {patient_id}")

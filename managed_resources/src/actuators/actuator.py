@@ -1,40 +1,44 @@
 from abc import ABC, abstractmethod
 
 from os import getenv
-import os
 from typing import Any
 
-import paho.mqtt.client as mqtt
+from paho.mqtt.client import Client, MQTTMessage
 from handlers.mqtt_handler import MQTTHandler
+
+from patient import Patient
 
 ACTIONS_TOPICS_PREFIX : str = getenv("ACTIONS_TOPICS_PREFIX")
 
 # Actuator abstract base class
 class Actuator(ABC):
 
-    def __init__(self, patient_id : int, name : str):
-        self.patient_id : int = patient_id
+    def __init__(self, patient : Patient, name : str):
+        self.patient : Patient = patient
+
         self.name : str = name
-        self.username : str = f"{name}#{patient_id}"
+        
+        self.username : str = f"{name}#{patient.get_id()}"
 
         print(f"[{self.username.upper()}]: Starting...")
 
         # Setup MQTT client
 
         ## Initialize client
-        mqtt_user = os.getenv("MQTT_USER")
-        mqtt_password = os.getenv("MQTT_PASSWORD")
+        mqtt_username = getenv("MQTT_USER")
+        mqtt_password = getenv("MQTT_PASSWORD")
 
-        subscribe_topic = f"{ACTIONS_TOPICS_PREFIX}/{patient_id}/{name}"
+        subscribe_topic = f"{ACTIONS_TOPICS_PREFIX}/{patient.get_id()}/{name}"
 
-        self.mqtt_client = MQTTHandler.get_client(
+        self.mqtt_client : Client = MQTTHandler.get_client(
             self.username,      
-            mqtt_user,          
+            mqtt_username,          
             mqtt_password,      
             subscribe_topic
         )
 
-        ## Set instance as client data: needed to trigger activation on message.
+        ## Set instance as client data
+        ## Needed to trigger activation on message
         userdata : dict = self.mqtt_client.user_data_get()
         userdata["parent"] = self
 
@@ -46,7 +50,7 @@ class Actuator(ABC):
         pass
 
     @staticmethod
-    def _on_message(client : mqtt.Client, userdata : dict[str, Any], message : mqtt.MQTTMessage):
+    def _on_message(client : Client, userdata : dict[str, Any], message : MQTTMessage):
 
         # Parse action
         action = message.payload.decode()
