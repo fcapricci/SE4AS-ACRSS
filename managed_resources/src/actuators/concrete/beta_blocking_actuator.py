@@ -19,7 +19,9 @@ class BetaBlockingActuator(Actuator):
     def _activate(self, flow_rate : float):
         
         if flow_rate is not None:
-            self.patient.therapy.set_beta_blocking(flow_rate)
+            self.patient.therapy.set_beta_blocking(
+                float(flow_rate)
+            )
             print(
                 f"[{self.username.upper()}]: Set beta-blocking flow rate to {flow_rate} {self.flow_rate_unit}."
             )

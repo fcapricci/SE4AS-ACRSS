@@ -20,7 +20,9 @@ class OxygenActuator(Actuator):
     def _activate(self, flow_rate : float) -> None:
 
         if flow_rate is not None:
-            self.patient.therapy.set_oxygen(flow_rate)
+            self.patient.therapy.set_oxygen(
+                float(flow_rate)
+            )
             print(
                 f"[{self.username.upper()}]: Set oxygen flow rate to {flow_rate} {self.flow_rate_unit}."
             )

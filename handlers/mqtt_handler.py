@@ -121,15 +121,6 @@ class MQTTHandler:
             )
             sent.append((topic, msg_info))
 
-        # Wait for messages to be published
-        for topic, message in sent:
-            message.wait_for_publish()
-
-            # Log results
-            result = "succeeded" if message.is_published else "failed"
-            print(f"[{client._client_id.upper()}]: Publish to {topic} {result}. Reason code: {message.rc}")
-        
-
 
     #
     # Monitoring callbacks

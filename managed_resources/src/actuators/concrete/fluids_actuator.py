@@ -16,7 +16,9 @@ class FluidsActuator(Actuator):
 
     def _activate(self, fluid : str) -> None:
 
-        self.patient.therapy.set_fluids(fluid)
+        self.patient.therapy.set_fluids(
+            str(fluid)
+        )
         if fluid is None:
             print(
                 f"[{self.username.upper()}]: Closed."

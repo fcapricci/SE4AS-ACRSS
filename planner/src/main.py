@@ -43,7 +43,7 @@ def main():
     )
 
     MQTTHandler.set_on_message(mqtt_client, on_message)
-    MQTTHandler.connect(mqtt_client, blocking=False)
+    MQTTHandler.connect(mqtt_client, blocking = False)
 
     try:
         while True:
