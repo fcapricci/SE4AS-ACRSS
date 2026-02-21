@@ -22,9 +22,6 @@ class Actuator(ABC):
 
         print(f"[{self.username.upper()}]: Starting...")
 
-        # Setup MQTT client
-
-        ## Initialize client
         mqtt_username = getenv("MQTT_USER")
         mqtt_password = getenv("MQTT_PASSWORD")
 
@@ -37,12 +34,9 @@ class Actuator(ABC):
             subscribe_topic
         )
 
-        ## Set instance as client data
-        ## Needed to trigger activation on message
         userdata : dict = self.mqtt_client.user_data_get()
         userdata["parent"] = self
 
-        ## Set on message callback
         MQTTHandler.set_on_message(self.mqtt_client, Actuator._on_message)
 
     @abstractmethod
